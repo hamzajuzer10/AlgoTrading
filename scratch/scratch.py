@@ -1,65 +1,99 @@
-import pandas as pd
+# Kalman Filter Mean Reversion Strategy
+
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+# import statsmodels.formula.api as sm
+import statsmodels.tsa.stattools as ts
 
+# import statsmodels.tsa.vector_ar.vecm as vm
 
-def kalman_filter(y_df: pd.DataFrame, x_df: pd.DataFrame, init_beta_weights, epsilon_df=None):
+df = pd.read_csv('C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\scratch\\inputData_EWA_EWC.csv')
+df['Date'] = pd.to_datetime(df['Date'], format='%Y%m%d').dt.date  # remove HH:MM:SS
+# df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y').dt.date  # remove HH:MM:SS
+df.set_index('Date', inplace=True)
 
-    # y is the price of the normalised security in the portfolio
-    # x will be the prices of other securities in the portfolio over time (t,dim(x)) array (will need to add a constant)
-    # init_beta_weights will be the initial beta weights of the other securities which we get from Johansen
-    # epsilon is a 1d array of y-x*init_beta_weights
+x = df['EWA']
+y = df['EWC']
 
-    # convert dataframe to array
-    y = y_df.values
-    x = x_df.values
-    epsilon = epsilon_df.values if epsilon_df is not None else None
+x = np.array(ts.add_constant(x))[:,
+    [1, 0]]  # Augment x with ones to  accomodate possible offset in the regression between y vs x.
 
-    # initialize
-    x = np.append(x, np.ones([x.shape[0],1]), axis=1) # append constant to x
-    dim = x.shape[1] # get the dim of x array
-    Q = np.zeros(y.shape) # measurement prediction error variance
-    sqrt_Q= np.zeros(y.shape)
-    e = np.zeros(y.shape) # measurement prediction error
-    y_hat = np.zeros(y.shape) # measurement prediction
-    P = np.zeros(shape=(dim, dim))
-    beta_weights = np.zeros(shape=(y.shape[0], dim))
-    delta = 0.0001
-    Vw = delta/(1-delta)*np.eye(dim)
-    Ve = 0.001
-    R = None
+delta = 0.0001  # delta=1 gives fastest change in beta, delta=0.000....1 allows no change (like traditional linear regression).
 
-    # initalize beta to init_beta_weights and 0 constant
-    beta_weights[0,:] = np.append(init_beta_weights, np.mean(epsilon) if epsilon is not None else 0)
+yhat = np.full(y.shape[0], np.nan)  # measurement prediction
+e = yhat.copy()
+Q = yhat.copy()
 
-    # loop
-    for t in range(0, y.shape[0]):
+# For clarity, we denote R(t|t) by P(t). Initialize R, P and beta.
+R = np.zeros((2, 2))
+P = R.copy()
+beta = np.full((2, x.shape[0]), np.nan)
+Vw = delta / (1 - delta) * np.eye(2)
+Ve = 0.001
 
-        if t > 0:
-            beta_weights[t, :] = beta_weights[t-1,:]
-            R = P + Vw
-        else:
-            R = np.zeros((dim, dim))
+# Initialize beta(:, 1) to zero
+beta[:, 0] = 0
 
-        # Compute y_hat
-        y_hat[t] = x[t,:].dot(beta_weights[t,:])
+# Given initial beta and R (and P)
+for t in range(len(y)):
+    if t > 0:
+        beta[:, t] = beta[:, t - 1]
+        R = P + Vw
 
-        Q[t] = x[t,:].dot(R).dot(x[t,:].T) + Ve
+    yhat[t] = np.dot(x[t, :], beta[:, t])
+    #    print('FIRST: yhat[t]=', yhat[t])
 
-        sqrt_Q[t] = np.sqrt(Q[t])
+    Q[t] = np.dot(np.dot(x[t, :], R), x[t, :].T) + Ve
+    #    print('Q[t]=', Q[t])
 
-        e[t] = y[t] - y_hat[t]
-        K = R.dot(x[t,:].T) / Q[t]
-        beta_weights[t,:] = beta_weights[t,:] + K.flatten() * e[t]
-        P = R - K * x[t,:].dot(R)
+    # Observe y(t)
+    e[t] = y[t] - yhat[t]  # measurement prediction error
+    #    print('e[t]=', e[t])
+    #    print('SECOND: yhat[t]=', yhat[t])
 
+    K = np.dot(R, x[t, :].T) / Q[t]  # Kalman gain
+    #    print(K)
 
-    # return dataframe of beta weights, errors and sqrt_q
-    beta_cols = x_df.columns.to_list()
-    beta_cols = beta_cols + ['const']
-    pre_str = '_beta'
-    beta_cols = [s + pre_str for s in beta_cols]
-    beta_weights_df = pd.DataFrame(data=beta_weights, index=x_df.index.to_list(), columns=beta_cols)
-    e_df = pd.DataFrame(data=e, index=x_df.index.to_list(), columns=['e'])
-    sqrt_Q_df = pd.DataFrame(data=sqrt_Q, index=x_df.index.to_list(), columns=['sqrt_q'])
+    beta[:, t] = beta[:, t] + np.dot(K, e[t])  # State update. Equation 3.11
+    #    print(beta[:, t])
 
-    return beta_weights_df, e_df, sqrt_Q_df
+    P = R - np.dot(np.dot(K, x[t, :]), R)  # State covariance update. Euqation 3.12
+#    print(R)
+
+plt.plot(beta[0, :])
+plt.plot(beta[1, :])
+plt.plot(e[2:])
+plt.plot(np.sqrt(Q[2:]))
+
+longsEntry = e < -np.sqrt(Q)
+longsExit = e > 0
+
+shortsEntry = e > np.sqrt(Q)
+shortsExit = e < 0
+
+numUnitsLong = np.zeros(longsEntry.shape)
+numUnitsLong[:] = np.nan
+
+numUnitsShort = np.zeros(shortsEntry.shape)
+numUnitsShort[:] = np.nan
+
+numUnitsLong[0] = 0
+numUnitsLong[longsEntry] = 1
+numUnitsLong[longsExit] = 0
+numUnitsLong = pd.DataFrame(numUnitsLong)
+numUnitsLong.fillna(method='ffill', inplace=True)
+
+numUnitsShort[0] = 0
+numUnitsShort[shortsEntry] = -1
+numUnitsShort[shortsExit] = 0
+numUnitsShort = pd.DataFrame(numUnitsShort)
+numUnitsShort.fillna(method='ffill', inplace=True)
+
+numUnits = numUnitsLong + numUnitsShort
+positions = pd.DataFrame(np.tile(numUnits.values, [1, 2]) * ts.add_constant(-beta[0, :].T)[:, [1,0]] * df.values)  # [hedgeRatio -ones(size(hedgeRatio))] is the shares allocation, [hedgeRatio -ones(size(hedgeRatio))].*y2 is the dollar capital allocation, while positions is the dollar capital in each ETF.
+pnl = np.sum((positions.shift().values) * (df.pct_change().values), axis=1)  # daily P&L of the strategy
+ret = pnl / np.sum(np.abs(positions.shift()), axis=1)
+(np.cumprod(1 + ret) - 1).plot()
+print('APR=%f Sharpe=%f' % (np.prod(1 + ret) ** (252 / len(ret)) - 1, np.sqrt(252) * np.mean(ret) / np.std(ret)))
+# APR=0.313225 Sharpe=3.464060

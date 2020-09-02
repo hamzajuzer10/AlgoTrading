@@ -1,11 +1,7 @@
 import pandas as pd
-from yahoofinancials import YahooFinancials
-import itertools
+from backtest_pairs.yfinance_connector import import_ticker_data
 from itertools import combinations
-import os
 import sys
-import matplotlib.pyplot as plt
-import statsmodels.api as sm
 import statsmodels.tsa.stattools as ts
 import seaborn as sns
 from backtest_pairs.johansen import coint_johansen
@@ -15,14 +11,14 @@ import warnings
 pd.set_option('display.max_columns', 20)
 pd.set_option('display.width', 2000)
 
-etf_ticker_path = 'C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\etf_tickers.csv'
+etf_ticker_path = '/backtest_pairs/data/etf_tickers.csv'
 num_tickers_in_basket = 3 # max 12
-start_date = '2006-01-01'
-end_date = '2012-12-31'
+start_date = '2018-06-01'
+end_date = '2020-06-01'
 time_interval = 'daily'
-min_period_yrs = 3
+min_period_yrs = 1.5
 max_half_life = 30 # in time interval units
-min_half_life = 0 # in time interval units
+min_half_life = 1.5 # in time interval units
 
 
 class StdoutRedirection:
@@ -39,39 +35,6 @@ class StdoutRedirection:
     def __exit__(self, exc_type, exc_val, exc_tb):
         sys.stdout.close()
         sys.stdout = sys.__stdout__
-
-
-def import_ticker_data(ticker_file_path:str, start_date:str, end_date:str, time_interval: str):
-
-    # read csv file with ticker data
-    ticker_df = pd.read_csv(ticker_file_path)
-    ticker_list = ticker_df['Symbol'].tolist()
-
-    yahoo_financials = YahooFinancials(ticker_list)
-
-    # download data
-    data = yahoo_financials.get_historical_price_data(start_date=start_date,
-                                                      end_date=end_date,
-                                                      time_interval=time_interval)
-
-    # get the prices as a dataframe
-    for ticker in data.keys():
-
-        # if prices is a key
-        try:
-            price_df = pd.DataFrame(data[ticker]['prices'])
-            price_df = price_df.drop('date', axis=1).set_index('formatted_date')
-            price_df = price_df[['adjclose']]
-            price_df.rename(columns={'adjclose': ticker}, inplace=True)
-            data[ticker]['price_df'] = price_df
-        except KeyError:
-            warnings.warn('Price data not available for {}!'.format(ticker))
-            warnings.warn('Removing {} from data list'.format(ticker))
-            del data[ticker]
-
-    # TODO: research if Xccy needs to be the same for all ticker prices - currently keeping Xccy in base units
-
-    return data
 
 
 def create_valid_ticker_combs(ticker_data, min_period_yrs: float, num_tickers_in_basket: int,
@@ -223,13 +186,18 @@ def create_valid_ticker_combs(ticker_data, min_period_yrs: float, num_tickers_in
 if __name__== '__main__':
 
     # download and import data
-    ticker_data = import_ticker_data(etf_ticker_path,
+    print('Importing ticker data')
+    ticker_data = import_ticker_data(ticker_file_path=etf_ticker_path,
                                      start_date=start_date,
                                      end_date=end_date,
                                      time_interval=time_interval)
 
+    # calculating valid ticker combinations
+    print('Calculating valid ticker combinations')
     valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
                                                    num_tickers_in_basket=num_tickers_in_basket,
                                                    max_half_life=max_half_life, min_half_life=min_half_life)
 
+    # saving valid ticker combinations
+    print('Saving results')
     valid_combinations.to_pickle(save_file_path('results', 'results_df.pkl'))
