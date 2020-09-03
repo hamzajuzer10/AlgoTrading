@@ -93,6 +93,9 @@ venv.bak/
 # Data
 data/
 
+# Scratch
+scratch/
+
 # Spyder project settings
 .spyderproject
 .spyproject
