@@ -4,6 +4,8 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$" isTestSource="false" />
     </content>
+    <content url="jar://$USER_HOME$/spark-3.0.0-bin-hadoop2.7/python/lib/py4j-0.10.9-src.zip!/" />
+    <content url="jar://$USER_HOME$/spark-3.0.0-bin-hadoop2.7/python/lib/pyspark.zip!/" />
     <orderEntry type="jdk" jdkName="Python 3.7 (trading_algo_env)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>

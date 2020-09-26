@@ -78,25 +78,6 @@ def import_yahoo_data(ticker,
     return data
 
 
-def build_price_df(data: dict):
-
-    # if prices is a key
-    for ticker in data:
-        try:
-            price_df = pd.DataFrame(data[ticker]['prices'])
-            price_df = price_df.drop('date', axis=1).set_index('formatted_date')
-            price_df.index = pd.to_datetime(price_df.index, format='%Y-%m-%d %H:%M:%S')
-            price_df = price_df[['adjclose']]
-            price_df.rename(columns={'adjclose': ticker}, inplace=True)
-            data[ticker]['price_df'] = price_df
-
-        except KeyError:
-            warnings.warn('Price data not available for {}!'.format(ticker))
-            del data[ticker]
-
-    return data
-
-
 def import_ticker_data(start_date: str, end_date: str, time_interval: str,
                        ticker_file_path: str = None, tickers: list = None, save_json_path: str = None,
                        no_data_json_path: str = None, save_data_only=False):
@@ -186,9 +167,7 @@ def load_ticker_data_json(save_json_path: str):
         # read json file if exists
         all_data = processJSON(save_json_path)
 
-    all_data_ = build_price_df(all_data)
-
-    return all_data_
+    return all_data
 
 
 if __name__ == '__main__':

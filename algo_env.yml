@@ -1,4 +1,4 @@
-name: trading_algo_env
+conname: trading_algo_env
 channels:
   - pytorch
   - plotly

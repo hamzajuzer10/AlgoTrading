@@ -91,7 +91,8 @@ env.bak/
 venv.bak/
 
 # Data
-data/
+backtest_pairs/data/
+backtest_pairs/pyspark/*.csv
 
 # Scratch
 scratch/
