@@ -7,6 +7,9 @@ from time import time
 import numpy as np
 from backtest_pairs.process_pairs import calculate_coint_results
 
+## Use the following guide to setup an AWS EMR cluster
+#https://towardsdatascience.com/getting-started-with-pyspark-on-amazon-emr-c85154b6b921
+
 master = 'local[4]'
 csv_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\pyspark\\etf_tickers_test.csv"
 save_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\pyspark\\etf_tickers_test_results.csv"
@@ -34,6 +37,7 @@ if __name__ == '__main__':
     ])
 
     df = spark.read.csv(csv_path, header=True, schema=schema, dateFormat="dd/MM/yyyy")
+    df = df.withColumn('formatted_date',func.to_timestamp(func.col('formatted_date'), "yyyy-MM-dd"))
 
     schema_output = StructType([
         StructField('ticker', ArrayType(StringType(), True), True),
