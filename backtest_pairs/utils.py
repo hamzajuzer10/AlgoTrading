@@ -8,10 +8,10 @@ def write_to_file(path, text_stream, append_mode):
         out_file.write(text_stream)
 
 
-def save_file_path(folder_name:str, filename:str):
+def save_file_path(folder_name:str, filename:str, wd=None):
     """Outpyts the full filepath and creates the folder if doesnt exist"""
 
-    cwd = os.getcwd()
+    cwd = os.getcwd() if wd is None else wd
     model_dir = os.path.join(cwd, folder_name)
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
