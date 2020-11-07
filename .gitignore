@@ -94,6 +94,8 @@ venv.bak/
 backtest_pairs/data/
 backtest_pairs/pyspark/*.csv
 backtest_pairs/coint_results/*
+backtest_pairs/plots/*
+backtest_pairs/results/*
 
 # Scratch
 scratch/

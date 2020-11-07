@@ -1,6 +1,6 @@
 import backtrader as bt
 import numpy as np
-from pykalman import KalmanFilter
+from backtest_pairs.kalman_filter import MyKalmanPython
 from math import sqrt, floor
 
 
@@ -12,10 +12,9 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
         ('state_mean', None),
         ('delta', 0.0001),
         ('n_dim_state', None),
-        ('state_covariance', None),
-        ('observation_covariance', None),
+        ('Ve', None),
         ('kalman_averaging', False),
-        ('entry_sqrt_q_multiplier', 1), # between 0.7 and 1.2
+        ('entry_sqrt_q_multiplier', 1.2), # between 0.7 and 1.2
         ('exit_sqrt_q_multiplier', 0), # between 0 and 0.3
         ('initialisation_period', 30),
         ('risk', 0.7)
@@ -111,19 +110,17 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
         # Kalman filter init
         trans_cov = self.params.delta / (1 - self.params.delta) * np.eye(self.params.n_dim_state)
 
-        self.kf = KalmanFilter(n_dim_obs=1, n_dim_state=self.params.n_dim_state,
-                               transition_matrices=np.eye(self.params.n_dim_state),
-                               observation_covariance=self.params.observation_covariance,
-                               transition_covariance=trans_cov)
+        self.kf = MyKalmanPython(init_state_mean=self.params.state_mean,
+                                 Ve=self.params.Ve, delta=self.params.delta, n_dim_state=self.params.n_dim_state,
+                                 use_kalman_price_averaging=self.params.kalman_averaging)
 
 
     def next(self):
 
         # compute the kalman updates
-
         # check that y_ticker has the same name as data
         assert self.datas[0]._name == self.params.y_ticker
-        y_mat = np.asarray(self.datas[0].close[0])
+        y_mat = self.datas[0].close[0]
 
         x_mat = np.ones((self.params.n_dim_state,))
         for i in range(len(self.params.x_ticker)):
@@ -135,18 +132,8 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
 
         # update the kalman filter
         obs_mat = np.asarray([x_mat])
-        state_mean_, state_covariance_ = self.kf.filter_update(self.params.state_mean,
-                                                               self.params.state_covariance,
-                                                               observation=y_mat,
-                                                               observation_matrix=obs_mat)
-        self.params.state_mean = np.asarray(state_mean_)
-        self.params.state_covariance = np.asarray(state_covariance_)
-
-        Q = obs_mat.dot(np.asarray(state_covariance_)).dot(obs_mat.T)
-        sqrt_Q = sqrt(Q.item())
-
-        # compute spread, e
-        e = y_mat.item() - x_mat.dot(state_mean_)
+        e, sqrt_Q, state_mean_ = self.kf.update(y_mat=y_mat,
+                                                x_mat=obs_mat)
 
         if len(self) < self.params.initialisation_period:
             return  # return if still in initialisation period

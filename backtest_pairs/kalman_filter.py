@@ -17,65 +17,79 @@ pd.set_option('display.max_columns', 20)
 pd.set_option('display.width', 2000)
 
 etf_ticker_path = '/backtest_pairs/data/etf_tickers.csv'
-start_date = '2006-04-26'
-end_date = '2012-04-09'
+start_date = '2018-06-01'
+end_date = '2020-06-01'
 time_interval = 'daily'
+time_zones = [-14400]
 num_tickers_in_basket = 2
-min_period_yrs = 3
+min_period_yrs = 1.5
 max_half_life = 30 # in time interval units
-min_half_life = 0 # in time interval units
+min_half_life = 2 # in time interval units
 
 
 class MyKalmanPython:
 
-    params = {
-        ('averaging_init_state_means', 0),
-        ('averaging_init_state_covariances', 1),
-        ('averaging_init_observation_covariances', 1),
-        ('averaging_init_transition_covariances', .01)
-    }
+    averaging_init_state_means = 0
+    averaging_init_state_covariances = 1
+    averaging_init_observation_covariances = 1
+    averaging_init_transition_covariances = .01
 
     def __init__(self,
                  init_state_mean: np.object,
-                 init_state_covariance: np.object,
+                 Ve: float,
                  delta: float,
                  n_dim_state: int,
-                 observation_covariance: float,
                  use_kalman_price_averaging=False):
         """Init the Kalman filter variables"""
 
         # Kalman filter init
-        trans_cov = delta / (1 - delta) * np.eye(n_dim_state)
+        self.Vw = delta / (1 - delta) * np.eye(n_dim_state) # delta=0.0001
+        self.Ve = Ve # 0.001
+        self.n_dim_state = n_dim_state
 
-        self.kf = KalmanFilter(n_dim_obs=1, n_dim_state=n_dim_state,
-                               transition_matrices=np.eye(n_dim_state),
-                               observation_covariance=observation_covariance,
-                               transition_covariance=trans_cov)
+        self.R = np.zeros((n_dim_state, n_dim_state), dtype=np.float64 )
+        self.P = np.zeros((n_dim_state, n_dim_state), dtype=np.float64 )
 
-        self.state_mean = init_state_mean
-        self.state_covariance = init_state_covariance
+        # set beta
+        self.beta = np.zeros((n_dim_state, 1))
+        self.beta[:, 0] = init_state_mean
+
+        # set yhat, e, q, and sqrt q
+        self.yhat = np.zeros(1)  # measurement prediction
+        self.e = np.zeros(1)
+        self.Q = np.zeros(1)
+        self.sqrt_Q = np.zeros(1)
+
+        # set xmat
+        self.x_mat = np.zeros((1, n_dim_state))
+
+        # set ymat
+        self.y_mat = np.zeros(1)
+
+        # set timestep
+        self.timestep = 0
 
         if use_kalman_price_averaging:
 
             self.kf_averaging = []
             self.kf_averaging_state_mean = []
             self.kf_averaging_state_covariance = []
-            for i in n_dim_state:
+            for i in range(n_dim_state):
 
                 # Construct a Kalman filter for each price series, there are n_dim_state of them
                 self.kf_averaging[i] = KalmanFilter(transition_matrices=[1],
                                                     observation_matrices=[1],
-                                                    initial_state_mean=self.params.averaging_init_state_means,
-                                                    initial_state_covariance=self.params.averaging_init_state_covariances,
-                                                    observation_covariance=self.params.averaging_init_observation_covariances,
-                                                    transition_covariance=self.params.averaging_init_transition_covariances)
+                                                    initial_state_mean=self.averaging_init_state_means,
+                                                    initial_state_covariance=self.averaging_init_state_covariances,
+                                                    observation_covariance=self.averaging_init_observation_covariances,
+                                                    transition_covariance=[self.averaging_init_transition_covariances])
         else:
 
             self.kf_averaging = None
 
     def update(self,
                x_mat: np.object,
-               y_mat: np.object):
+               y_mat: float):
         """Update the Kalman filter"""
 
         if self.kf_averaging:
@@ -87,23 +101,91 @@ class MyKalmanPython:
                                                                                 observation=y_mat,
                                                                                 observation_matrix=obs_mat)
 
+            x_mat = np.asarray([state_mean_])
 
         # update the kalman filter
-        obs_mat = np.asarray([x_mat])
-        state_mean_, state_covariance_ = self.kf.filter_update(self.state_mean,
-                                                               self.state_covariance,
-                                                               observation=y_mat,
-                                                               observation_matrix=obs_mat)
-        self.state_mean = np.asarray(state_mean_)
-        self.state_covariance = np.asarray(state_covariance_)
+        if self.timestep > 0:
+            beta_ = self.beta[:, self.timestep-1]
+            self.R = self.P + self.Vw
+        else:
+            beta_ = self.beta[:, 0]
 
-        Q = obs_mat.dot(np.asarray(state_covariance_)).dot(obs_mat.T)
-        sqrt_Q = sqrt(Q.item())
+        yhat = np.dot(x_mat, beta_)
+        Q = np.dot(np.dot(x_mat, self.R), x_mat.T) + self.Ve
+        sqrt_Q = np.sqrt(Q)
 
-        # compute spread, e
-        e = y_mat.item() - x_mat.dot(state_mean_)
+        # Observe y(t)
+        e = y_mat - yhat  # measurement prediction error
+        K = np.dot(self.R, x_mat.T) / Q  # Kalman gain
+        beta_ = beta_ + np.dot(K, e)  # State update. Equation 3.11
+        self.P = self.R - np.dot(np.dot(K.squeeze(), x_mat.squeeze(0).T), self.R)  # State covariance update. Euqation 3.12
 
-        return e, sqrt_Q
+        # update beta, yhat, q, sqrt_q
+        if self.timestep == 0:
+            self.beta[:, self.timestep] = beta_
+            self.yhat[self.timestep] = yhat
+            self.e[self.timestep] = e
+            self.Q[self.timestep] = Q
+            self.sqrt_Q[self.timestep] = sqrt_Q
+            self.x_mat[self.timestep, :] = x_mat
+            self.y_mat[self.timestep] = y_mat
+        else:
+            beta_shape = np.zeros((2, 1))
+            beta_shape[:, 0] = beta_
+            self.beta = np.hstack((self.beta, beta_shape))
+            self.yhat = np.hstack((self.yhat, yhat))
+            self.e = np.hstack((self.e, e))
+            self.Q = np.hstack((self.Q, Q.squeeze(0)))
+            self.sqrt_Q = np.hstack((self.sqrt_Q, sqrt_Q.squeeze(0)))
+            self.x_mat = np.vstack((self.x_mat, x_mat))
+            self.y_mat = np.hstack((self.y_mat, y_mat))
+
+        # update timestep
+        self.timestep += 1
+
+        return e, sqrt_Q, beta_
+
+
+    def reset(self):
+
+        # Reset values
+        self.R = np.zeros((self.n_dim_state, self.n_dim_state))
+        self.P = np.zeros((self.n_dim_state, self.n_dim_state))
+
+        # set beta
+        self.beta = np.zeros((self.n_dim_state, 1))
+
+        # set yhat, e, q, and sqrt q
+        self.yhat = np.zeros(1)  # measurement prediction
+        self.e = np.zeros(1)
+        self.Q = np.zeros(1)
+        self.sqrt_Q = np.zeros(1)
+
+        # set xmat
+        self.x_mat = np.zeros((1, self.n_dim_state))
+
+        # set ymat
+        self.y_mat = np.zeros(1)
+
+        # set timestep
+        self.timestep = 0
+
+        if self.kf_averaging:
+
+            self.kf_averaging = []
+            self.kf_averaging_state_mean = []
+            self.kf_averaging_state_covariance = []
+            for i in self.n_dim_state:
+                # Construct a Kalman filter for each price series, there are n_dim_state of them
+                self.kf_averaging[i] = KalmanFilter(transition_matrices=[1],
+                                                    observation_matrices=[1],
+                                                    initial_state_mean=self.params.averaging_init_state_means,
+                                                    initial_state_covariance=self.params.averaging_init_state_covariances,
+                                                    observation_covariance=self.params.averaging_init_observation_covariances,
+                                                    transition_covariance=self.params.averaging_init_transition_covariances)
+        else:
+
+            self.kf_averaging = None
 
     def apply_Kalman_average(self, x):
 
@@ -122,128 +204,144 @@ class MyKalmanPython:
         return state_means
 
 
-def reformat_data(valid_combinations: pd.Series):
+def reformat_data_y_x_tickers(valid_combinations: pd.Series, zero_mean=False):
 
     # get the Johansen weights
     p_weights = valid_combinations['johansen_eigenvectors']
+    tickers = valid_combinations['ticker']
 
     # normalise the weights so that the first element is 1
+    if isinstance(p_weights, list):
+        p_weights = pd.Series(p_weights)
+
     scale = 1/p_weights.iloc[0]
     p_weights = p_weights*scale*-1
 
     # y is the first security value, x is the remaining
-    y_ticker = p_weights.index[0]
-    x_ticker = p_weights.index[1:].to_list()
-    initial_const = valid_combinations['merged_prices_comb_df']['portfolio_price'].mean()
-    initial_mean = p_weights[1:].to_list() + [0]
+    y_ticker = tickers[0]
+    x_ticker = tickers[1:]
+    initial_mean = p_weights[1:].to_list() + [0] # 0 is for the constant
+
+    if zero_mean:
+        initial_mean = [0 for x in initial_mean]
 
     return y_ticker, x_ticker, initial_mean, len(x_ticker) + 1
 
 
-def apply_active_Kalman_filter(valid_combinations: pd.Series):
+def reformat_data(df: pd.DataFrame, zero_mean=False):
+
+    # create a series and get the number of ticker combinations
+    ticker_series = pd.Series()
+    sample_ticker = df['ticker'][0]
+    n_combs = len(sample_ticker)
+
+    def shift(seq, n=0):
+        a = n % len(seq)
+        return seq[-a:] + seq[:-a]
+
+    for i in range(n_combs):
+
+        ticker_series = pd.concat([ticker_series, df['ticker'].apply(shift, args=(i,))], ignore_index=False)
+
+    # join s1 with df on their indexes
+    df = pd.merge(df, ticker_series.to_frame('updated_ticker'), left_index=True, right_index=True, how="inner")
+
+    # drop ticker col and rename updated_ticker to ticker
+    df['ticker'] = df['updated_ticker']
+    df = df.drop('updated_ticker', 1)
+
+    # reset index
+    df.reset_index(drop=True, inplace=True)
+
+    # get y and x tickers
+    df['y_ticker'], df['x_ticker'], df['initial_mean'], df['dim'] = zip(*df.apply(reformat_data_y_x_tickers, args=(zero_mean,), axis=1))
+
+    return df
+
+
+def apply_active_Kalman_filter(valid_combinations: pd.Series, price_averaging=False, min_date: str = None, max_date: str = None):
+
     y_series = valid_combinations['merged_prices_comb_df'][valid_combinations['y_ticker']]
     x_df = valid_combinations['merged_prices_comb_df'][list(valid_combinations['x_ticker'])]
+
+    if min_date:
+
+        # cap y_series and x_df at min date
+        y_series = y_series.loc[min_date:]
+        x_df = x_df.loc[min_date:]
+
+    if max_date:
+
+        # cap y_series and x_df at min date
+        y_series = y_series.loc[:max_date]
+        x_df = x_df.loc[:max_date]
+
     init_state_mean = valid_combinations['initial_mean']
     dim = valid_combinations['dim']
-
-    delta = 0.0001
-    observation_covariance = 0.05
-    trans_cov = delta / (1 - delta) * np.eye(dim)
 
     x_mat = np.ones((y_series.shape[0], dim))
     for i in range(len(valid_combinations['x_ticker'])):
         x_ticker = valid_combinations['x_ticker'][i]
         x_mat[:, i] = (x_df[x_ticker])
 
-    # Compute a smoothed y, x signal
-    # state_means = KalmanFilterRegression(apply_Kalman_average(x), apply_Kalman_average(y))
-
-    state_means = np.zeros((y_series.shape[0]+1, dim))
-    state_covs = np.zeros((y_series.shape[0]+1, dim, dim))
-    Q = np.zeros((y_series.shape[0]+1,))
-    sqrt_Q = np.zeros((y_series.shape[0]+1,))
-
-    # initialize state means and covariances
-    state_means[0,:] = init_state_mean
-    state_covs[0, :, :] = np.zeros((dim, dim))
-    Q[0] = 0
-    sqrt_Q[0] = 0
-
-    kf = KalmanFilter(n_dim_obs=1, n_dim_state=dim,
-                      transition_matrices=np.eye(dim),
-                      observation_covariance=observation_covariance,
-                      transition_covariance=trans_cov)
+    kf = MyKalmanPython(init_state_mean=init_state_mean,
+                        Ve=0.001, delta=0.0001, n_dim_state=dim, use_kalman_price_averaging=price_averaging)
 
     for idx in range(0, y_series.shape[0]):
 
         obs_mat = np.asarray([x_mat[idx, :]])
-        state_means[idx+1, :], state_covs[idx+1, :, :] = kf.filter_update(state_means[idx, :],
-                                                                          state_covs[idx, :, :],
-                                                                          observation=np.asarray(y_series.iloc[idx]),
-                                                                          observation_matrix=obs_mat)
+        kf.update(y_mat=y_series.iloc[idx],
+                  x_mat=obs_mat)
 
-        Q[idx+1] = obs_mat.dot(state_covs[idx+1, :, :]).dot(obs_mat.T)
-        sqrt_Q[idx+1] = np.sqrt(Q[idx+1])
 
-    # remove all index 0s from state_means, state_covs, Q, sqrt_Q
-    state_means = np.delete(state_means, (0), axis=0)
-    Q = np.delete(Q, (0), axis=0)
-    sqrt_Q = np.delete(sqrt_Q, (0), axis=0)
-
-    # plot and compare errors
     beta_cols = list(valid_combinations['x_ticker'])
     beta_cols = beta_cols + ['const']
     pre_str = '_beta'
     beta_cols = [s + pre_str for s in beta_cols]
-    beta_weights_df = pd.DataFrame(data=state_means,
+    beta_weights_df = pd.DataFrame(data=kf.beta.T,
                                    index=x_df.index.to_list(),
                                    columns=beta_cols)
     kf_soln = pd.merge(x_df, beta_weights_df, how='inner', left_index=True, right_index=True)
     kf_soln = pd.merge(kf_soln, y_series, how='inner', left_index=True, right_index=True)
 
-    # calculate y_hat and spread (e)
-    kf_soln['y_hat'], kf_soln['e'] = zip(*kf_soln.apply(compute_y_hat_and_spread, args=(valid_combinations['y_ticker'],
-                                                                                        valid_combinations['x_ticker'],), axis=1))
-
-    # calculate half life
-    half_life_e = half_life(kf_soln.e)
-
-    sqrt_Q_df = pd.DataFrame(data={'q': Q, 'sqrt_q': sqrt_Q}, index=x_df.index.to_list(), columns=['q', 'sqrt_q'])
-    kf_soln = pd.merge(kf_soln, sqrt_Q_df, how='inner', left_index=True, right_index=True)
-
-    # get z score for comparison
-    kf_soln['zScore'] = kf_soln[['e']].apply(apply_Z_score, args=(half_life_e, 2,))
-
-    plt_cols = [['e', 'sqrt_q'], ['zScore']] + \
-               np.expand_dims(beta_cols, axis=1).tolist()
-    fig, axs = plt.subplots(nrows=2, ncols=ceil(len(plt_cols) / 2))
-    for ax, col in zip(axs.flatten(), plt_cols):
-        sns.lineplot(data=kf_soln[col], ax=ax)
-
-    fig.savefig(
-        save_file_path('plots', 'kalman_online_y_' + valid_combinations['y_ticker'] + '_x_' + '_'.join(beta_cols) + '.png'),
-        format='png', dpi=1000)
-    fig.clf()
+    kf_soln['y_hat'] = pd.Series(kf.yhat, index=kf_soln.index)
+    kf_soln['e'] = pd.Series(kf.e, index=kf_soln.index)
+    kf_soln['q'] = pd.Series(kf.Q, index=kf_soln.index)
+    kf_soln['sqrt_q'] = pd.Series(kf.sqrt_Q, index=kf_soln.index)
 
     # estimate returns
-    APR, Sharpe = estimate_returns(kf_soln, beta_cols, valid_combinations['y_ticker'], list(valid_combinations['x_ticker']),
-                                   dim, 'kalman_online')
+    APR, Sharpe = estimate_returns(kf_soln, beta_cols, valid_combinations['y_ticker'],
+                                   list(valid_combinations['x_ticker']),
+                                   dim, 'kalman_raw')
 
     return APR, Sharpe
 
 
-def apply_raw_Kalman_filter(valid_combinations: pd.Series):
+def apply_raw_Kalman_filter(valid_combinations: pd.Series, plot=False, min_date: str = None, max_date: str = None):
 
     y_series = valid_combinations['merged_prices_comb_df'][valid_combinations['y_ticker']]
     x_df = valid_combinations['merged_prices_comb_df'][list(valid_combinations['x_ticker'])]
+
+    if min_date:
+
+        # cap y_series and x_df at min date
+        y_series = y_series.loc[min_date:]
+        x_df = x_df.loc[min_date:]
+
+    if max_date:
+
+        # cap y_series and x_df at min date
+        y_series = y_series.loc[:max_date]
+        x_df = x_df.loc[:max_date]
+
     init_state_mean = valid_combinations['initial_mean']
     dim = valid_combinations['dim']
 
     delta = 0.0001  # delta=1 gives fastest change in beta, delta=0.000....1 allows no change (like traditional linear regression).
-    R = np.zeros((dim, dim))
-    P = R.copy()
+    R = np.zeros((dim, dim), dtype=np.float64)
+    P = np.zeros((dim, dim), dtype=np.float64)
     beta = np.full((dim, x_df.shape[0]), np.nan)
-    Vw = delta / (1 - delta) * np.eye(2)
+    Vw = delta / (1 - delta) * np.eye(dim)
     Ve = 0.001
     yhat = np.full(y_series.shape[0], np.nan)  # measurement prediction
     e = yhat.copy()
@@ -307,53 +405,29 @@ def apply_raw_Kalman_filter(valid_combinations: pd.Series):
     kf_soln['sqrt_q'] = pd.Series(sqrt_Q, index=kf_soln.index)
 
     # plot figure
-    plt_cols = [['e', 'sqrt_q']] + \
-               np.expand_dims(beta_cols, axis=1).tolist()
-    fig, axs = plt.subplots(nrows=2, ncols=ceil(len(plt_cols) / 2))
-    for ax, col in zip(axs.flatten(), plt_cols):
-        sns.lineplot(data=kf_soln[col], ax=ax)
+    if plot:
+        plt_cols = [['e', 'sqrt_q']] + \
+                   np.expand_dims(beta_cols, axis=1).tolist()
+        fig, axs = plt.subplots(nrows=2, ncols=ceil(len(plt_cols) / 2))
+        for ax, col in zip(axs.flatten(), plt_cols):
+            sns.lineplot(data=kf_soln[col], ax=ax)
 
-    fig.savefig(
-        save_file_path('plots',
-                       'kalman_raw_y_' + valid_combinations['y_ticker'] + '_x_' + '_'.join(beta_cols) + '.png'),
-        format='png', dpi=1000)
-    fig.clf()
+        fig.savefig(
+            save_file_path('plots',
+                           'kalman_raw_y_' + valid_combinations['y_ticker'] + '_x_' + '_'.join(beta_cols) + '.png'),
+            format='png', dpi=1000)
+        fig.clf()
 
     # estimate returns
     APR, Sharpe = estimate_returns(kf_soln, beta_cols, valid_combinations['y_ticker'], list(valid_combinations['x_ticker']),
-                                   dim, 'kalman_raw')
+                                   dim, 'kalman_raw', plot=plot)
 
     return APR, Sharpe
 
 
-def compute_y_hat_and_spread(row: pd.Series, y_ticker: str, x_cols: list):
-
-    y_hat = 0
-    if isinstance(x_cols, str): x_cols = [x_cols]
-    for t in x_cols:
-
-        b_t = t+'_beta'
-        y_hat += row[t]*row[b_t]
-
-    y_hat += row['const_beta']
-    e = row[y_ticker] - y_hat
-
-    return y_hat, e
-
-
-def apply_Z_score(e: pd.Series, half_life: float, half_life_multiplier=1):
-
-    # get z score for comparison
-    mean_spread = e.rolling(window=ceil(half_life)*half_life_multiplier).mean()
-    std_spread = e.rolling(window=ceil(half_life)*half_life_multiplier).std()
-
-    z = (e - mean_spread) / std_spread
-
-    return z
-
-
 def estimate_returns(frame: pd.DataFrame, beta_cols: list,
-                     y_ticker: str, x_cols: list, dim: int, run_name: str, initialisation_period=30):
+                     y_ticker: str, x_cols: list, dim: int, run_name: str, initialisation_period=30,
+                     plot=False):
 
     # Estimate returns excluding transaction costs and slippage
     frame['longsEntry'] = frame.e < -frame.sqrt_q
@@ -400,39 +474,49 @@ def estimate_returns(frame: pd.DataFrame, beta_cols: list,
     cumreturn = np.cumprod(1 + ret) - 1
 
     # plot figure
-    sns_plot= sns.lineplot(data=cumreturn)
-    sns_plot.figure.savefig(
-        save_file_path('plots',
-                       run_name + '_cum_return_' + valid_combinations['y_ticker'].item() + '_x_' + '_'.join(beta_cols) + '.png'),
-        format='png', dpi=1000)
-    sns_plot.figure.clf()
+    if plot:
+        sns_plot = sns.lineplot(data=cumreturn)
+        sns_plot.figure.savefig(
+            save_file_path('plots',
+                           run_name + '_cum_return_y_' + y_ticker + '_x_' + '_'.join(beta_cols) + '.png'),
+            format='png', dpi=1000)
+        sns_plot.figure.clf()
 
     # (np.cumprod(1 + ret) - 1).plot()
     APR = np.prod(1 + ret) ** (252 / len(ret)) - 1
     Sharpe = np.sqrt(252) * np.mean(ret) / np.std(ret)
-    print('APR=%f Sharpe=%f' % (APR, Sharpe))
+    print('Processed ticker: {a}, {b} - APR={c}, Sharpe={d}'.format(a=y_ticker, b=x_cols, c=APR, d=Sharpe))
 
     return APR, Sharpe
 
 
 if __name__== '__main__':
 
-    # download and import data
-    print('Importing ticker data')
-    ticker_data = import_ticker_data(ticker_file_path=etf_ticker_path,
-                                     start_date=start_date,
-                                     end_date=end_date,
-                                     time_interval=time_interval)
+    # # download and import data
+    # print('Importing ticker data')
+    # ticker_data = import_ticker_data(tickers=['XCEM', 'RXE.TO'],
+    #                                  start_date=start_date,
+    #                                  end_date=end_date,
+    #                                  time_interval=time_interval)
+    #
+    # # calculating valid ticker combinations
+    # print('Calculating valid ticker combinations')
+    # valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
+    #                                                num_tickers_in_basket=num_tickers_in_basket,
+    #                                                max_half_life=max_half_life, min_half_life=min_half_life,
+    #                                                time_zones=time_zones, save_all=True)
+    #
+    # if valid_combinations.shape[0] == 0:
+    #     warnings.warn('No valid ticker combinations to process!')
+    #     sys.exit(0)
+    #
+    # # Filter only on valid combinations
+    # print('Filtering valid ticker combinations only')
+    # valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
 
-    # Calculate portfolio stationarity to find valid combinations
-    print('Calculating valid ticker combinations')
-    valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
-                                                   num_tickers_in_basket=num_tickers_in_basket,
-                                                   max_half_life=max_half_life, min_half_life=min_half_life)
-
-    # Filter only on valid combinations
-    print('Filtering valid ticker combinations only')
-    valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
+    # Load valid combination from file
+    print('Loading valid ticker combinations')
+    valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\valid_coint_results_df.pkl")
 
     if valid_combinations.shape[0] == 0:
         warnings.warn('No valid ticker combinations to process!')
@@ -440,13 +524,22 @@ if __name__== '__main__':
 
     # For each valid combination
     print('Reformatting valid ticker combination data')
-    valid_combinations['y_ticker'], valid_combinations['x_ticker'], \
-    valid_combinations['initial_mean'], valid_combinations['dim'] = zip(*valid_combinations.apply(reformat_data, axis=1))
+    valid_combinations = reformat_data(valid_combinations, zero_mean=False)
 
     # Test Kalman Filter active code on ticker
-    print('Applying active Kalman Filter on valid ticker combination data')
-    valid_combinations.apply(apply_active_Kalman_filter, axis=1)
+    # print('Applying online Kalman Filter on valid ticker combination data')
+    # valid_combinations['APR_active'], valid_combinations['Sharpe_active'] = zip(*valid_combinations.apply(apply_active_Kalman_filter, args=(False, None, '2020-02-01'), axis=1))
 
-    # print('Applying raw Kalman Filter on valid ticker combination data')
-    # valid_combinations.apply(apply_raw_Kalman_filter, axis=1)
+    # Test Kalman Filter active code with price averaging on ticker
+    # print('Applying online Kalman Filter with price averaging on valid ticker combination data')
+    # valid_combinations['APR_active_pa'], valid_combinations['Sharpe_active_pa'] = zip(
+    #     *valid_combinations.apply(apply_active_Kalman_filter, args=(True, None, None), axis=1))
+
+    print('Applying raw Kalman Filter on valid ticker combination data')
+    valid_combinations['APR'], valid_combinations['Sharpe'] = zip(*valid_combinations.apply(apply_raw_Kalman_filter, args=(False, None, '2020-02-01'), axis=1))
+
+    # Save dataframe
+    print('Saving results')
+    valid_combinations.to_pickle(
+        save_file_path(folder_name='coint_results', filename='kalman_results_df_exc_covid.pkl'))
 

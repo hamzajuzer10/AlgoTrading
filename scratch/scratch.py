@@ -8,13 +8,14 @@ import statsmodels.tsa.stattools as ts
 
 # import statsmodels.tsa.vector_ar.vecm as vm
 
-df = pd.read_csv('C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\scratch\\inputData_EWA_EWC.csv')
-df['Date'] = pd.to_datetime(df['Date'], format='%Y%m%d').dt.date  # remove HH:MM:SS
+df = pd.read_csv('C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\scratch\\XCEM_RXE.TO.data.csv')
+df['Date'] = pd.to_datetime(df['formatted_date'], format='%Y-%m-%d').dt.date  # remove HH:MM:SS
 # df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y').dt.date  # remove HH:MM:SS
 df.set_index('Date', inplace=True)
 
-x = df['EWA']
-y = df['EWC']
+x = df['RXE.TO']
+y = df['XCEM']
+df = x.to_frame().join(y.to_frame())
 
 x = np.array(ts.add_constant(x))[:,
     [1, 0]]  # Augment x with ones to  accomodate possible offset in the regression between y vs x.

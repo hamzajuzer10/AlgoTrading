@@ -67,6 +67,8 @@ if __name__== '__main__':
     # Build merged_prices_comb_df for each ticker combination
     print('Building merged priced dataframe')
     coint_ticker_pos_results['ticker'] = coint_ticker_pos_results.apply(lambda x: ast.literal_eval(x['ticker']), axis=1)
+    coint_ticker_pos_results['johansen_eigenvectors'] = coint_ticker_pos_results.apply(lambda x: ast.literal_eval(x['johansen_eigenvectors']), axis=1)
+
     coint_ticker_pos_results = build_merged_prices_comb_df(coint_ticker_pos_results, json_path)
 
     # saving valid ticker combinations

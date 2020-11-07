@@ -2,8 +2,9 @@ import backtrader as bt
 from backtest_pairs.back_test_strategy import PyKalman_PairTradingStrategy
 from backtest_pairs.back_test_sizer import exampleSizer, printSizingParams, maxRiskSizer
 import pandas as pd
-from backtest_pairs.process_pairs import import_ticker_data, create_valid_ticker_combs
+from backtest_pairs.process_pairs import import_ticker_data, create_valid_ticker_combs, build_price_df
 from backtest_pairs.kalman_filter import reformat_data
+from backtest_pairs.utils import save_file_path
 import sys
 import warnings
 import numpy as np
@@ -12,15 +13,15 @@ import os
 import csv
 from datetime import datetime
 
-
 etf_ticker_path = '/backtest_pairs/data/etf_tickers.csv'
-start_date = '2006-04-26'
-end_date = '2012-04-09'
+start_date = '2018-06-01'
+end_date = '2020-06-01'
 time_interval = 'daily'
+time_zones = [-14400]
 num_tickers_in_basket = 2
-min_period_yrs = 3
+min_period_yrs = 1.5
 max_half_life = 30 # in time interval units
-min_half_life = 0 # in time interval units
+min_half_life = 2 # in time interval units
 
 
 class CashMarket(bt.analyzers.Analyzer):
@@ -136,8 +137,7 @@ def runstrategy(valid_combinations: pd.Series
                         state_mean=np.asarray(valid_combinations['initial_mean']),
                         delta=0.0001,
                         n_dim_state=valid_combinations['dim'],
-                        state_covariance=np.zeros((valid_combinations['dim'], valid_combinations['dim'])),
-                        observation_covariance=0.05,
+                        Ve=0.001,
                         kalman_averaging=False,
                         initialisation_period=30)
 
@@ -153,13 +153,15 @@ def runstrategy(valid_combinations: pd.Series
     cerebro.addanalyzer(CashMarket, _name='cashmarket')
 
     # Print out the starting conditions
-    print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
+    starting_pfolio_value = cerebro.broker.getvalue()
+    print('Starting Portfolio Value: %.2f' % starting_pfolio_value)
 
     # And run it
     results = cerebro.run()
 
     # Print out the final result
-    print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
+    final_pfolio_value = cerebro.broker.getvalue()
+    print('Final Portfolio Value: %.2f' % final_pfolio_value)
 
     # ---- Format the values from results ----
     df_values = pd.DataFrame(results[0].analyzers.getbyname("cashmarket").get_analysis()).T
@@ -175,18 +177,25 @@ def runstrategy(valid_combinations: pd.Series
 
     qs.extend_pandas()
     output_file_name = "qs_" + 'y_' + valid_combinations['y_ticker'] + '_x_' + '_'.join(valid_combinations['x_ticker']) + '.html'
-    output_file_name = os.path.join("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\results", output_file_name)
-    qs.reports.html(returns, benchmark=benchmark_data, output=output_file_name)
+    output_file_name = save_file_path(folder_name="results", filename=output_file_name, wd = None)
 
+    try:
+        qs.reports.html(returns, benchmark=benchmark_data, output=output_file_name)
+
+    except:
+        print('Error generating report for {} combination'.format(valid_combinations['ticker']))
+        print('Unexpected error:{}'.format(sys.exc_info()[0]))
+
+    return starting_pfolio_value, final_pfolio_value
 
 if __name__ == '__main__':
 
     # download and import data
-    print('Importing ticker data')
-    ticker_data = import_ticker_data(ticker_file_path=etf_ticker_path,
-                                     start_date=start_date,
-                                     end_date=end_date,
-                                     time_interval=time_interval)
+    # print('Importing ticker data')
+    # ticker_data = import_ticker_data(tickers=['XCEM', 'RXE.TO'],
+    #                                  start_date=start_date,
+    #                                  end_date=end_date,
+    #                                  time_interval=time_interval)
 
     # benchmark data
     print('Importing benchmark data - SPY')
@@ -195,27 +204,48 @@ if __name__ == '__main__':
                                         end_date=end_date,
                                         time_interval=time_interval)
 
-    # Calculate portfolio stationarity to find valid combinations
-    print('Calculating valid ticker combinations')
-    valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
-                                                   num_tickers_in_basket=num_tickers_in_basket,
-                                                   max_half_life=max_half_life, min_half_life=min_half_life)
+    benchmark_data = build_price_df(benchmark_data)
 
-    # Filter only on valid combinations
-    print('Filtering valid ticker combinations only')
-    valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
+    # calculating valid ticker combinations
+    # print('Calculating valid ticker combinations')
+    # valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
+    #                                                num_tickers_in_basket=num_tickers_in_basket,
+    #                                                max_half_life=max_half_life, min_half_life=min_half_life,
+    #                                                time_zones=time_zones, save_all=True)
+    #
+    # if valid_combinations.shape[0] == 0:
+    #     warnings.warn('No valid ticker combinations to process!')
+    #     sys.exit(0)
+    #
+    # # Filter only on valid combinations
+    # print('Filtering valid ticker combinations only')
+    # valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
+    #
+    # if valid_combinations.shape[0] == 0:
+    #     warnings.warn('No valid ticker combinations to process!')
+    #     sys.exit(0)
+    #
+    # # For each valid combination
+    # print('Reformatting valid ticker combination data')
+    # valid_combinations = reformat_data(valid_combinations)
+
+    # Load valid combination from file
+    print('Loading valid ticker combinations')
+    valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\kalman_results_df.pkl")
 
     if valid_combinations.shape[0] == 0:
         warnings.warn('No valid ticker combinations to process!')
         sys.exit(0)
 
-    # For each valid combination
-    print('Reformatting valid ticker combination data')
-    valid_combinations['y_ticker'], valid_combinations['x_ticker'], \
-    valid_combinations['initial_mean'], valid_combinations['dim'] = zip(
-        *valid_combinations.apply(reformat_data, axis=1))
+    # Filter only combinations where estimated Sharpe Ratio >2 and APRs> 25%
+    valid_combinations = valid_combinations[valid_combinations.Sharpe >= 2]
+    valid_combinations = valid_combinations[valid_combinations.APR >= 0.25]
 
-    # For each valid combination
     print('Running strategy on valid ticker combination data')
-    valid_combinations = valid_combinations.apply(runstrategy,
-                                                  args=(benchmark_data['SPY']['price_df'], 10000,), axis=1)
+    valid_combinations['starting_pfolio_value_backtest'], valid_combinations['final_pfolio_value_backtest'] = zip(*valid_combinations.apply(runstrategy,
+                                                  args=(benchmark_data['SPY']['price_df'], 10000,), axis=1))
+
+    # save valid combinations
+    print('Saving results')
+    valid_combinations.to_pickle(
+        save_file_path(folder_name='results', filename='backtest_results_df.pkl'))

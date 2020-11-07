@@ -61,7 +61,7 @@ def filter_high_liquidity_tickers(data: dict, n_days = 90, min_last_n_day_vol: f
             vol_df = vol_df[['volume']]
             vol_mean = np.mean(vol_df.tail(n_days)).item()
             if vol_mean < min_last_n_day_vol:
-                print('Ticker {b} volume traded is smaller than min, {a}. Disregarding ticker!'.format(min_last_n_day_vol, ticker))
+                print('Ticker {b} volume traded is smaller than min, {a}. Disregarding ticker!'.format(b=ticker, a=min_last_n_day_vol))
                 del data[ticker]
 
         except KeyError:
