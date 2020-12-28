@@ -100,6 +100,10 @@ class CommIB(bt.CommInfoBase): # Interactive broker tiered US commission charges
 def runstrategy(valid_combinations: pd.Series
                 , benchmark_data: pd.Series
                 , cash=10000
+                , results_folder_name='results'
+                , min_final_pfolio_value_for_tearsheet_perc=1.2
+                , min_date: str = None
+                , max_date: str = None
                 , short_interest=0.0125):
 
     print('Running strategy on {} combination'.format(valid_combinations['ticker']))
@@ -113,6 +117,17 @@ def runstrategy(valid_combinations: pd.Series
     # Create data feeds - y variable
     # rename to close
     y_data = valid_combinations['merged_prices_comb_df'][[valid_combinations['y_ticker']]]
+
+    if min_date:
+
+        # cap y at min date
+        y_data = y_data.loc[min_date:]
+
+    if max_date:
+
+        # cap y at max date
+        y_data = y_data.loc[:max_date]
+
     y_data.rename(columns={y_data.columns[0]: "close"}, inplace=True)
     data = bt.feeds.PandasData(dataname=y_data,
                                name=valid_combinations['y_ticker'])
@@ -123,6 +138,16 @@ def runstrategy(valid_combinations: pd.Series
     # Create data feeds - x variables
     for ticker in valid_combinations['x_ticker']:
         x_data = valid_combinations['merged_prices_comb_df'][[ticker]]
+
+        if min_date:
+            # cap x at min date
+            x_data = x_data.loc[min_date:]
+
+        if max_date:
+            # cap x at max date
+            x_data = x_data.loc[:max_date]
+
+
         x_data.rename(columns={x_data.columns[0]: "close"}, inplace=True)
         data = bt.feeds.PandasData(dataname=x_data,
                                    name=ticker)
@@ -168,25 +193,41 @@ def runstrategy(valid_combinations: pd.Series
     df_values = df_values.iloc[:, 1]
     returns = qs.utils.to_returns(df_values)
     returns.index = pd.to_datetime(returns.index)
-    # ----------------------------------------
 
-    # ---- Format the benchmark from SPY.csv ----
-    returns_bm = qs.utils.to_returns(benchmark_data)
-    returns_bm.index = pd.to_datetime(returns_bm.index)
-    # -------------------------------------------
+    returns_abs = returns+1
+    mean_monthly_returns = (returns_abs.groupby(pd.Grouper(freq='M')).prod() - 1).mean()
+    std_monthly_returns = (returns_abs.groupby(pd.Grouper(freq='M')).prod() - 1).std()
 
-    qs.extend_pandas()
-    output_file_name = "qs_" + 'y_' + valid_combinations['y_ticker'] + '_x_' + '_'.join(valid_combinations['x_ticker']) + '.html'
-    output_file_name = save_file_path(folder_name="results", filename=output_file_name, wd = None)
+    # save the result only if the final pfolio value is greater than starting_pfolio_value * min_final_pfolio_value_for_tearsheet_perc
+    if final_pfolio_value >= starting_pfolio_value*min_final_pfolio_value_for_tearsheet_perc:
 
-    try:
-        qs.reports.html(returns, benchmark=benchmark_data, output=output_file_name)
+        # ----------------------------------------
 
-    except:
-        print('Error generating report for {} combination'.format(valid_combinations['ticker']))
-        print('Unexpected error:{}'.format(sys.exc_info()[0]))
+        # ---- Format the benchmark from SPY.csv ----
+        if min_date:
+            # cap at min date
+            benchmark_data = benchmark_data.loc[min_date:]
 
-    return starting_pfolio_value, final_pfolio_value
+        if max_date:
+            # cap at max date
+            benchmark_data = benchmark_data.loc[:max_date]
+
+        returns_bm = qs.utils.to_returns(benchmark_data)
+        returns_bm.index = pd.to_datetime(returns_bm.index)
+        # -------------------------------------------
+
+        qs.extend_pandas()
+        output_file_name = "qs_" + 'y_' + valid_combinations['y_ticker'] + '_x_' + '_'.join(valid_combinations['x_ticker']) + '.html'
+        output_file_name = save_file_path(folder_name=results_folder_name, filename=output_file_name, wd = None)
+
+        try:
+            qs.reports.html(returns, benchmark=benchmark_data, output=output_file_name)
+
+        except:
+            print('Error generating report for {} combination'.format(valid_combinations['ticker']))
+            print('Unexpected error:{}'.format(sys.exc_info()[0]))
+
+    return starting_pfolio_value, final_pfolio_value, mean_monthly_returns, std_monthly_returns
 
 if __name__ == '__main__':
 
@@ -231,7 +272,7 @@ if __name__ == '__main__':
 
     # Load valid combination from file
     print('Loading valid ticker combinations')
-    valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\kalman_results_df.pkl")
+    valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\kalman_results_df_exc_covid.pkl")
 
     if valid_combinations.shape[0] == 0:
         warnings.warn('No valid ticker combinations to process!')
@@ -242,10 +283,13 @@ if __name__ == '__main__':
     valid_combinations = valid_combinations[valid_combinations.APR >= 0.25]
 
     print('Running strategy on valid ticker combination data')
-    valid_combinations['starting_pfolio_value_backtest'], valid_combinations['final_pfolio_value_backtest'] = zip(*valid_combinations.apply(runstrategy,
-                                                  args=(benchmark_data['SPY']['price_df'], 10000,), axis=1))
+    valid_combinations['starting_pfolio_value_backtest'], \
+    valid_combinations['final_pfolio_value_backtest'], \
+    valid_combinations['mean_monthly_returns'], \
+    valid_combinations['std_monthly_returns'] = zip(*valid_combinations.apply(runstrategy,
+                                                  args=(benchmark_data['SPY']['price_df'], 10000, 'results_pre_cv19', 1.2, None, '2020-02-01'), axis=1))
 
     # save valid combinations
     print('Saving results')
     valid_combinations.to_pickle(
-        save_file_path(folder_name='results', filename='backtest_results_df.pkl'))
+        save_file_path(folder_name='results_pre_cv19', filename='backtest_results_df.pkl'))

@@ -71,7 +71,7 @@ def filter_high_liquidity_tickers(data: dict, n_days = 90, min_last_n_day_vol: f
         return data
 
 
-def build_price_df(data: dict):
+def build_price_df(data: dict, use_close_prices: bool = False):
 
     output_dict = {}
 
@@ -81,8 +81,15 @@ def build_price_df(data: dict):
             price_df = pd.DataFrame(data[ticker]['prices'])
             price_df = price_df.drop('date', axis=1).set_index('formatted_date')
             price_df.index = pd.to_datetime(price_df.index, format='%Y-%m-%d %H:%M:%S')
-            price_df = price_df[['adjclose']]
-            price_df.rename(columns={'adjclose': ticker}, inplace=True)
+
+            # exclude dividends from prices if set to true
+            if use_close_prices:
+                price_df = price_df[['close']]
+                price_df.rename(columns={'close': ticker}, inplace=True)
+            else:
+                price_df = price_df[['adjclose']]
+                price_df.rename(columns={'adjclose': ticker}, inplace=True)
+
             output_dict[ticker] = {}
             output_dict[ticker]['price_df'] = price_df
             output_dict[ticker]['currency'] = data[ticker]['currency']

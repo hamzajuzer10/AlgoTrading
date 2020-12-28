@@ -1,5 +1,6 @@
 import pandas as pd
 from backtest_pairs.yfinance_connector import import_ticker_data, load_ticker_data_json
+from backtest_pairs.process_pairs import build_price_df, group_timeZone, create_combinations, filter_high_liquidity_tickers
 from itertools import combinations
 from io import StringIO
 import sys
@@ -17,97 +18,6 @@ start_date = '2006-04-26'
 end_date = '2012-04-09'
 time_interval = 'daily'
 time_zones = [-14400]
-
-
-class StdoutRedirection:
-    """Standard output redirection context manager"""
-
-    def __init__(self, path, write_mode="w"):
-        self._result = StringIO()
-        self._path = path
-        self._write_mode = write_mode
-
-    def __enter__(self):
-        sys.stdout = self._result
-        # sys.stdout = open(self._path, mode=self._write_mode)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # sys.stdout.close()
-        sys.stdout = sys.__stdout__
-
-    def save_to_txt_file(self):
-
-        with open(self._path, self._write_mode) as out_file:
-            out_file.write(self._result.getvalue())
-
-
-def filter_high_liquidity_tickers(data: dict, n_days = 90, min_last_n_day_vol: float = 10000):
-
-    # filter tickers with average 30 days vol > min
-    for ticker in data:
-        try:
-            vol_df = pd.DataFrame(data[ticker]['prices'])
-            vol_df = vol_df.drop('date', axis=1).set_index('formatted_date')
-            vol_df.index = pd.to_datetime(vol_df.index, format='%Y-%m-%d %H:%M:%S')
-            vol_df = vol_df[['volume']]
-            vol_mean = np.mean(vol_df.tail(n_days)).item()
-            if vol_mean < min_last_n_day_vol:
-                print('Ticker {b} volume traded is smaller than min, {a}. Disregarding ticker!'.format(min_last_n_day_vol, ticker))
-                del data[ticker]
-
-        except KeyError:
-            warnings.warn('Volume data not available for {}!'.format(ticker))
-            del data[ticker]
-
-        return data
-
-
-def build_price_df(data: dict):
-
-    output_dict = {}
-
-    # if prices, currency, instrumentType and timeZone is a key
-    for ticker in data:
-        try:
-            price_df = pd.DataFrame(data[ticker]['prices'])
-            price_df = price_df.drop('date', axis=1).set_index('formatted_date')
-            price_df.index = pd.to_datetime(price_df.index, format='%Y-%m-%d %H:%M:%S')
-            price_df = price_df[['adjclose']]
-            price_df.rename(columns={'adjclose': ticker}, inplace=True)
-            output_dict[ticker] = {}
-            output_dict[ticker]['price_df'] = price_df
-            output_dict[ticker]['currency'] = data[ticker]['currency']
-            output_dict[ticker]['instrumentType'] = data[ticker]['instrumentType']
-            output_dict[ticker]['timeZone_gmtOffset'] = data[ticker]['timeZone']['gmtOffset']
-
-        except KeyError:
-            warnings.warn('Price, currency, instrumentType or timeZone data not available for {}!'.format(ticker))
-
-    return output_dict
-
-
-def group_timeZone(data: dict):
-
-    # group tickers with the same timezone
-    output = defaultdict(list)
-
-    for ticker, value in data.items():
-
-        output[value['timeZone_gmtOffset']].append(ticker)
-
-    return output
-
-
-def create_combinations(data: dict, n_tickers_in_basket: int):
-
-    # create combinations
-    valid_combinations = []
-    for key, value in data.items():
-        comb = combinations(value, n_tickers_in_basket)
-        valid_combinations.extend(list(comb))
-
-    return valid_combinations
 
 
 def create_ticker_combs_csv(ticker_data, num_tickers_in_basket: int,
