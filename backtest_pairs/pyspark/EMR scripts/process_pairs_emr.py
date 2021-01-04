@@ -7,15 +7,23 @@ import pandas as pd
 from time import time
 import numpy as np
 import sys
-import seaborn as sns
 import os
+
+## Use the following guide to setup an AWS EMR cluster
+# https://towardsdatascience.com/getting-started-with-pyspark-on-amazon-emr-c85154b6b921
+# Use emr-5.25 as main software configuration and only keep hadoop, hive, spark and livy due to issues with Jupyter kernels
+# and bootstrap script on other software configurations
+# Supply the following configuration when creating a cluster:
+# [{"Classification": "spark-defaults", "Properties": {"spark.driver.memory": "20G"}},{"classification": "livy-conf","Properties": {"livy.server.session.timeout":"8h"}}]
+
 os.environ["ARROW_PRE_0_15_IPC_FORMAT"] = "1"
 
-csv_path = "s3://algo-trading-hjuzer/etf_tickers.csv"
-save_path = "s3://algo-trading-hjuzer/etf_tickers_results.csv"
+csv_path = "s3://algo-trading-hjuzer/etf_tickers_12_2020.csv"
+save_path = "s3://algo-trading-hjuzer/etf_tickers_results_12_2020.csv"
 min_period_yrs = 1.5
-max_half_life = 30 # in time interval units
-min_half_life = 2 # in time interval units
+max_half_life = 12 # in time interval units, 30 if days, 12 if weeks
+min_half_life = 2 # in time interval units, 2 is default
+time_interval = 'weekly'
 
 # Create Spark session
 conf = SparkConf()
@@ -609,7 +617,7 @@ class StdoutRedirection:
 
 def calculate_coint_results(merged_prices_comb_df: pd.DataFrame, ticker, min_period_yrs: float, max_half_life: int,
                             min_half_life: float, save_price_df: bool = True, save_all: bool = False,
-                            print_verbose: bool = True, print_file: bool = True, alt_cols=None):
+                            print_verbose: bool = True, print_file: bool = True, alt_cols=None, time_interval='daily'):
 
     # compute the johansen test
     # important note: johansen test is asymptotic and only valid for large samples (>40),
@@ -618,10 +626,16 @@ def calculate_coint_results(merged_prices_comb_df: pd.DataFrame, ticker, min_per
 
     # get the max and min date
     n_trading_days_per_year = 252
+    n_trading_weeks_per_year = 52
     max_date = merged_prices_comb_df.index.max()
     min_date = merged_prices_comb_df.index.min()
 
-    if n_samples < (n_trading_days_per_year * min_period_yrs):
+    if time_interval == 'daily':
+        n_sample_min = n_trading_days_per_year * min_period_yrs
+    elif time_interval == 'weekly':
+        n_sample_min = n_trading_weeks_per_year * min_period_yrs
+
+    if n_samples < n_sample_min:
 
         if print_verbose:
             print('Insufficient samples detected')
@@ -817,7 +831,8 @@ def process_pairs_spark(df):
                                           save_all=True,
                                           print_verbose=False,
                                           print_file=False,
-                                          alt_cols=ticker_col)
+                                          alt_cols=ticker_col,
+                                          time_interval=time_interval)
 
     # return results dataframe
     results_df = pd.DataFrame()
@@ -828,7 +843,7 @@ def process_pairs_spark(df):
 t_0 = time()
 
 df_map = df.groupby("combination").apply(process_pairs_spark)
-df_map.show()
+# df_map.show()
 results_df_p = df_map.toPandas()
 results_df_p.to_csv(save_path, mode='w', index=True)
 

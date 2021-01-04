@@ -16,7 +16,7 @@ import statsmodels.tsa.stattools as ts
 pd.set_option('display.max_columns', 20)
 pd.set_option('display.width', 2000)
 
-etf_ticker_path = '/backtest_pairs/data/etf_tickers.csv'
+etf_ticker_path = '/backtest_pairs/data/etf_tickers_07_2020.csv'
 start_date = '2018-06-01'
 end_date = '2020-06-01'
 time_interval = 'daily'
@@ -25,7 +25,6 @@ num_tickers_in_basket = 2
 min_period_yrs = 1.5
 max_half_life = 30 # in time interval units
 min_half_life = 2 # in time interval units
-
 
 class MyKalmanPython:
 
@@ -504,7 +503,7 @@ if __name__== '__main__':
     # valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
     #                                                num_tickers_in_basket=num_tickers_in_basket,
     #                                                max_half_life=max_half_life, min_half_life=min_half_life,
-    #                                                time_zones=time_zones, save_all=True)
+    #                                                time_zones=time_zones, save_all=True, time_interval=time_interval)
     #
     # if valid_combinations.shape[0] == 0:
     #     warnings.warn('No valid ticker combinations to process!')
@@ -516,7 +515,7 @@ if __name__== '__main__':
 
     # Load valid combination from file
     print('Loading valid ticker combinations')
-    valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\valid_coint_results_df.pkl")
+    valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\valid_coint_results_df_12_2020_weekly.pkl")
 
     if valid_combinations.shape[0] == 0:
         warnings.warn('No valid ticker combinations to process!')
@@ -536,10 +535,10 @@ if __name__== '__main__':
     #     *valid_combinations.apply(apply_active_Kalman_filter, args=(True, None, None), axis=1))
 
     print('Applying raw Kalman Filter on valid ticker combination data')
-    valid_combinations['APR'], valid_combinations['Sharpe'] = zip(*valid_combinations.apply(apply_raw_Kalman_filter, args=(False, None, '2020-02-01'), axis=1))
+    valid_combinations['APR'], valid_combinations['Sharpe'] = zip(*valid_combinations.apply(apply_raw_Kalman_filter, args=(False, None, '2020-12-01'), axis=1))
 
     # Save dataframe
     print('Saving results')
     valid_combinations.to_pickle(
-        save_file_path(folder_name='coint_results', filename='kalman_results_df_exc_covid.pkl'))
+        save_file_path(folder_name='coint_results', filename='kalman_results_df_12_2020_weekly.pkl'))
 

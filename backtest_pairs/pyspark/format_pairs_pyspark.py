@@ -11,23 +11,24 @@ import numpy as np
 pd.set_option('display.max_columns', 20)
 pd.set_option('display.width', 2000)
 
-json_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\data\\etf_tickers.json"
-csv_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\pyspark\\etf_tickers.csv"
+json_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\data\\etf_tickers_12_2020.json"
+csv_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\pyspark\\data\\etf_tickers_12_2020_weekly.csv"
 num_tickers_in_basket = 2 # max 12
 start_date = '2006-04-26'
 end_date = '2012-04-09'
-time_interval = 'daily'
-time_zones = [-14400]
+time_interval = 'weekly'
+time_zones = [-18000, 0]
 
 
 def create_ticker_combs_csv(ticker_data, num_tickers_in_basket: int,
                            formatted_file_path, time_zones=None):
 
     # only consider tickers with sufficient liquidity
-    ticker_data = filter_high_liquidity_tickers(ticker_data)
+    # given yahoo ticker screener has a 500 units end of day vol filter, we keep min volume to 1000 units per day
+    ticker_data = filter_high_liquidity_tickers(data=ticker_data, min_last_n_day_vol=1000)
 
-    # create a price df, timezone and currency for each ticker
-    ticker_data = build_price_df(ticker_data)
+    # create a price df, timezone and currency for each ticker - use close prices
+    ticker_data = build_price_df(ticker_data, use_close_prices=True, time_interval=time_interval)
 
     # create num_tickers_in_basket combinations of ticker data, grouping by timeZone
     time_zone_ticker_groups = group_timeZone(ticker_data)
@@ -44,7 +45,6 @@ def create_ticker_combs_csv(ticker_data, num_tickers_in_basket: int,
 
     # For each combination, check the minimum start dates for all tickers in basket
     for index, i in enumerate(list_comb):
-        # johansen test
         # merge all dataframes together
         print('Processing combination {a}/{b}: {c}'.format(a=index, b=len(list_comb), c=i))
         merged_prices_comb_df = pd.DataFrame()
@@ -71,7 +71,7 @@ def create_ticker_combs_csv(ticker_data, num_tickers_in_basket: int,
 if __name__== '__main__':
 
     # download and import data
-    print('Importing ticker data')
+    print('Importing ticker data...')
     # ticker_data = import_ticker_data(tickers=['EWA', 'EWC', 'DIA', 'IYT'],
     #                                  start_date=start_date,
     #                                  end_date=end_date,
@@ -79,6 +79,6 @@ if __name__== '__main__':
     ticker_data = load_ticker_data_json(json_path)
 
     # calculating valid ticker combinations
-    print('Reformatting ticker combinations and saving into csv')
+    print('Reformatting ticker combinations and saving into csv...')
     create_ticker_combs_csv(ticker_data, num_tickers_in_basket=num_tickers_in_basket,
                             formatted_file_path=csv_path, time_zones=time_zones)

@@ -16,7 +16,7 @@ import os
 pd.set_option('display.max_columns', 20)
 pd.set_option('display.width', 2000)
 
-json_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\data\\etf_tickers.json"
+json_path = "/backtest_pairs/data/etf_tickers_07_2020.json"
 num_tickers_in_basket = 2 # max 12
 start_date = '2006-04-26'
 end_date = '2012-04-09'
@@ -71,7 +71,10 @@ def filter_high_liquidity_tickers(data: dict, n_days = 90, min_last_n_day_vol: f
         return data
 
 
-def build_price_df(data: dict, use_close_prices: bool = False):
+def build_price_df(data: dict, use_close_prices: bool = False, time_interval = 'daily'):
+
+    # yahoo adjusts close prices for stock splits
+    # and adjusted close prices for stock splits and dividends
 
     output_dict = {}
 
@@ -89,6 +92,11 @@ def build_price_df(data: dict, use_close_prices: bool = False):
             else:
                 price_df = price_df[['adjclose']]
                 price_df.rename(columns={'adjclose': ticker}, inplace=True)
+
+            if time_interval == 'weekly':
+
+                # resample at weekly time intervals (keep monday only)
+                price_df = price_df[price_df.index.weekday == 0]
 
             output_dict[ticker] = {}
             output_dict[ticker]['price_df'] = price_df
@@ -127,7 +135,7 @@ def create_combinations(data: dict, n_tickers_in_basket: int):
 
 def calculate_coint_results(merged_prices_comb_df: pd.DataFrame, ticker, min_period_yrs: float, max_half_life: int,
                             min_half_life: float, save_price_df: bool = True, save_all: bool = False,
-                            print_verbose: bool = True, print_file: bool = True, alt_cols=None):
+                            print_verbose: bool = True, print_file: bool = True, alt_cols=None, time_interval='daily'):
 
     # compute the johansen test
     # important note: johansen test is asymptotic and only valid for large samples (>40),
@@ -136,10 +144,16 @@ def calculate_coint_results(merged_prices_comb_df: pd.DataFrame, ticker, min_per
 
     # get the max and min date
     n_trading_days_per_year = 252
+    n_trading_weeks_per_year = 52
     max_date = merged_prices_comb_df.index.max()
     min_date = merged_prices_comb_df.index.min()
 
-    if n_samples < (n_trading_days_per_year * min_period_yrs):
+    if time_interval == 'daily':
+        n_sample_min = n_trading_days_per_year * min_period_yrs
+    elif time_interval == 'weekly':
+        n_sample_min = n_trading_weeks_per_year * min_period_yrs
+
+    if n_samples < n_sample_min:
 
         if print_verbose:
             print('Insufficient samples detected')
@@ -287,7 +301,7 @@ def calculate_coint_results(merged_prices_comb_df: pd.DataFrame, ticker, min_per
 
 
 def create_valid_ticker_combs(ticker_data, min_period_yrs: float, num_tickers_in_basket: int,
-                              max_half_life: int, min_half_life: float, time_zones=None, save_all=True):
+                              max_half_life: int, min_half_life: float, time_zones=None, save_all=True, time_interval='daily'):
 
     # only consider tickers with sufficient liquidity
     ticker_data = filter_high_liquidity_tickers(ticker_data)
@@ -328,7 +342,8 @@ def create_valid_ticker_combs(ticker_data, min_period_yrs: float, num_tickers_in
                                               save_price_df=True,
                                               save_all=save_all,
                                               print_verbose=True,
-                                              print_file=True)
+                                              print_file=True,
+                                              time_interval=time_interval)
 
         if result_dict:
             valid_combinations = valid_combinations.append(result_dict, ignore_index=True)
@@ -351,7 +366,7 @@ if __name__== '__main__':
     valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
                                                    num_tickers_in_basket=num_tickers_in_basket,
                                                    max_half_life=max_half_life, min_half_life=min_half_life,
-                                                   time_zones=time_zones, save_all=False)
+                                                   time_zones=time_zones, save_all=False, time_interval=time_interval)
 
     # saving valid ticker combinations
     print('Saving results')

@@ -11,11 +11,12 @@ from backtest_pairs.process_pairs import calculate_coint_results
 #https://towardsdatascience.com/getting-started-with-pyspark-on-amazon-emr-c85154b6b921
 
 master = 'local[4]'
-csv_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\pyspark\\etf_tickers_test.csv"
-save_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\pyspark\\etf_tickers_test_results.csv"
+csv_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\pyspark\\data\\etf_tickers_test.csv"
+save_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\pyspark\\data\\etf_tickers_test_results.csv"
 min_period_yrs = 1.5
 max_half_life = 30 # in time interval units
 min_half_life = 2 # in time interval units
+time_interval = 'daily'
 
 if __name__ == '__main__':
 
@@ -82,7 +83,8 @@ if __name__ == '__main__':
                                               save_all=True,
                                               print_verbose=False,
                                               print_file=False,
-                                              alt_cols=ticker_col)
+                                              alt_cols=ticker_col,
+                                              time_interval=time_interval)
 
         # return results dataframe
         results_df = pd.DataFrame()

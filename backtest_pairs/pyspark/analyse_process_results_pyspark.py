@@ -8,19 +8,19 @@ from backtest_pairs.utils import save_file_path
 pd.set_option('display.max_columns', 20)
 pd.set_option('display.width', 2000)
 
-results_save_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\pyspark\\etf_tickers_results.csv"
-json_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\data\\etf_tickers.json"
+results_save_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\pyspark\\data\\etf_tickers_results_12_2020_weekly.csv"
+json_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\data\\etf_tickers_12_2020.json"
+save_file_name = "valid_coint_results_df_12_2020_weekly.pkl" # saved in the coint_results folder
+max_date = '2020-10-31'
+time_interval = 'weekly'
 
-max_date = '2020-05-29'
-
-
-def build_merged_prices_comb_df(results_df: pd.DataFrame, ticker_data_path: str):
+def build_merged_prices_comb_df(results_df: pd.DataFrame, ticker_data_path: str, time_interval: str):
 
     # Load ticker data from path
     ticker_data = load_ticker_data_json(ticker_data_path)
 
     # Build price df
-    ticker_data = build_price_df(ticker_data)
+    ticker_data = build_price_df(ticker_data, time_interval=time_interval)
 
     # For each row in results_df
     results_df.reset_index(drop=True, inplace=True)
@@ -69,9 +69,9 @@ if __name__== '__main__':
     coint_ticker_pos_results['ticker'] = coint_ticker_pos_results.apply(lambda x: ast.literal_eval(x['ticker']), axis=1)
     coint_ticker_pos_results['johansen_eigenvectors'] = coint_ticker_pos_results.apply(lambda x: ast.literal_eval(x['johansen_eigenvectors']), axis=1)
 
-    coint_ticker_pos_results = build_merged_prices_comb_df(coint_ticker_pos_results, json_path)
+    coint_ticker_pos_results = build_merged_prices_comb_df(coint_ticker_pos_results, json_path, time_interval)
 
     # saving valid ticker combinations
     print('Saving results')
-    coint_ticker_pos_results.to_pickle(save_file_path(folder_name='coint_results', filename='valid_coint_results_df.pkl',
+    coint_ticker_pos_results.to_pickle(save_file_path(folder_name='coint_results', filename=save_file_name,
                                                       wd='C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs'))

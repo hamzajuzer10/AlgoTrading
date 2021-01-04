@@ -7,11 +7,11 @@ import json
 from threading import Thread
 import functools
 
-etf_ticker_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\data\\etf_tickers.csv"
-json_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\data\\etf_tickers.json"
-no_data_json_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\AlgoTradingv1\\backtest_pairs\\data\\etf_tickers_no_data.json"
+etf_ticker_path = "backtest_pairs\\data\\etf_tickers_12_2020.csv"
+json_path = "backtest_pairs\\data\\etf_tickers_12_2020.json"
+no_data_json_path = "backtest_pairs\\data\\etf_tickers_no_data_12_2020.json"
 start_date = '2018-06-01'
-end_date = '2020-06-01'
+end_date = '2020-12-01'
 time_interval = 'daily'
 
 
@@ -82,6 +82,7 @@ def import_ticker_data(start_date: str, end_date: str, time_interval: str,
                        ticker_file_path: str = None, tickers: list = None, save_json_path: str = None,
                        no_data_json_path: str = None, save_data_only=False):
 
+    # Yahoo Finance returns Xccy in Exchange Xccy i.e NYSE in USD, LSE in GBx
     # read csv file with ticker data
     if ticker_file_path:
         ticker_df = pd.read_csv(ticker_file_path)
@@ -154,8 +155,6 @@ def import_ticker_data(start_date: str, end_date: str, time_interval: str,
 
         if not save_data_only:
             all_data = {**all_data, **data}
-
-    # TODO: research if Xccy needs to be the same for all ticker prices - currently keeping Xccy in base units
 
     return all_data
 
