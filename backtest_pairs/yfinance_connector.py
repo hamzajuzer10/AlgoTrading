@@ -12,7 +12,7 @@ json_path = "backtest_pairs\\data\\etf_tickers_12_2020.json"
 no_data_json_path = "backtest_pairs\\data\\etf_tickers_no_data_12_2020.json"
 start_date = '2018-06-01'
 end_date = '2020-12-01'
-time_interval = 'daily'
+time_interval = 'weekly'
 
 
 def timeout(seconds_before_timeout):
@@ -175,7 +175,7 @@ if __name__ == '__main__':
     import_ticker_data(ticker_file_path=etf_ticker_path,
                        start_date=start_date,
                        end_date=end_date,
-                       time_interval=time_interval,
+                       time_interval='daily',
                        save_json_path=json_path,
                        no_data_json_path=no_data_json_path,
                        save_data_only=True)

@@ -17,12 +17,12 @@ etf_ticker_path = '/backtest_pairs/data/etf_tickers_07_2020.csv'
 start_date = '2018-06-01'
 end_date = '2020-12-01'
 time_interval = 'weekly'
-time_zones = [-18000]
+time_zones = [-18000, 0]
 num_tickers_in_basket = 2
 min_period_yrs = 1.5
-max_half_life = 30 # in time interval units
-min_half_life = 2 # in time interval units
-
+max_half_life = 12 # in time interval units, 30 if days, 12 if weeks
+min_half_life = 2 # in time interval units, 2 is default
+use_close_prices = True
 
 class CashMarket(bt.analyzers.Analyzer):
 
@@ -231,12 +231,12 @@ def runstrategy(valid_combinations: pd.Series
 
 if __name__ == '__main__':
 
-    # # download and import data
-    # print('Importing ticker data')
-    # ticker_data = import_ticker_data(tickers=['FRAK', 'FHE.TO'],
-    #                                  start_date=start_date,
-    #                                  end_date=end_date,
-    #                                  time_interval=time_interval)
+    # download and import data
+    print('Importing ticker data')
+    ticker_data = import_ticker_data(tickers=['IXJ', 'TMF'],
+                                     start_date=start_date,
+                                     end_date=end_date,
+                                     time_interval='daily')
 
     # benchmark data
     print('Importing benchmark data - SPY')
@@ -245,51 +245,54 @@ if __name__ == '__main__':
                                         end_date=end_date,
                                         time_interval='daily')
 
-    benchmark_data = build_price_df(benchmark_data, time_interval=time_interval)
+    benchmark_data = build_price_df(benchmark_data, time_interval=time_interval, use_close_prices=use_close_prices)
 
-    # # calculating valid ticker combinations
-    # print('Calculating valid ticker combinations')
-    # valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
-    #                                                num_tickers_in_basket=num_tickers_in_basket,
-    #                                                max_half_life=max_half_life, min_half_life=min_half_life,
-    #                                                time_zones=time_zones, save_all=True, time_interval=time_interval)
-    #
-    # if valid_combinations.shape[0] == 0:
-    #     warnings.warn('No valid ticker combinations to process!')
-    #     sys.exit(0)
+    # calculating valid ticker combinations
+    print('Calculating valid ticker combinations')
+    valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
+                                                   num_tickers_in_basket=num_tickers_in_basket,
+                                                   max_half_life=max_half_life, min_half_life=min_half_life,
+                                                   time_zones=time_zones, save_all=True, time_interval=time_interval,
+                                                   use_close_prices=use_close_prices)
 
-    # # Filter only on valid combinations
-    # print('Filtering valid ticker combinations only')
-    # valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
+    if valid_combinations.shape[0] == 0:
+        warnings.warn('No valid ticker combinations to process!')
+        sys.exit(0)
 
-    # if valid_combinations.shape[0] == 0:
-    #     warnings.warn('No valid ticker combinations to process!')
-    #     sys.exit(0)
+    # Filter only on valid combinations
+    print('Filtering valid ticker combinations only')
+    valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
 
-    # # For each valid combination
-    # print('Reformatting valid ticker combination data')
-    # valid_combinations = reformat_data(valid_combinations)
+    if valid_combinations.shape[0] == 0:
+        warnings.warn('No valid ticker combinations to process!')
+        sys.exit(0)
+
+    # For each valid combination
+    print('Reformatting valid ticker combination data')
+    valid_combinations = reformat_data(valid_combinations)
 
     # Load valid combination from file
-    print('Loading valid ticker combinations')
-    valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\kalman_results_df_12_2020_weekly.pkl")
+    # print('Loading valid ticker combinations')
+    # valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\kalman_results_df_12_2020_weekly.pkl")
 
     if valid_combinations.shape[0] == 0:
         warnings.warn('No valid ticker combinations to process!')
         sys.exit(0)
 
     # Filter only combinations where estimated Sharpe Ratio >2 and APRs> 25%
-    valid_combinations = valid_combinations[valid_combinations.Sharpe >= 2]
-    valid_combinations = valid_combinations[valid_combinations.APR >= 0.25]
+    # valid_combinations = valid_combinations[valid_combinations.Sharpe >= 2]
+    # valid_combinations = valid_combinations[valid_combinations.APR >= 0.25]
 
     print('Running strategy on valid ticker combination data')
     valid_combinations['starting_pfolio_value_backtest'], \
     valid_combinations['final_pfolio_value_backtest'], \
     valid_combinations['mean_monthly_returns'], \
     valid_combinations['std_monthly_returns'] = zip(*valid_combinations.apply(runstrategy,
-                                                  args=(benchmark_data['SPY']['price_df'], 10000, 'results_12_2020_weekly', 1.5, None, end_date), axis=1))
+                                                  args=(benchmark_data['SPY']['price_df'], 10000, 'results_ind_12_2020_weekly', 1.5, None, end_date), axis=1))
+
+    valid_combinations['coeff_monthly_returns'] = valid_combinations['std_monthly_returns']/ valid_combinations['mean_monthly_returns']
 
     # save valid combinations
-    print('Saving results')
-    valid_combinations.to_pickle(
-        save_file_path(folder_name='results_12_2020_weekly', filename='backtest_results_df.pkl'))
+    # print('Saving results')
+    # valid_combinations.to_pickle(
+    #     save_file_path(folder_name='results_12_2020_weekly', filename='backtest_results_df.pkl'))

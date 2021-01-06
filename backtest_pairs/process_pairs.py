@@ -25,6 +25,7 @@ min_period_yrs = 1.5
 max_half_life = 30 # in time interval units
 min_half_life = 2 # in time interval units
 time_zones = [-14400]
+use_close_prices = False
 
 
 class StdoutRedirection:
@@ -301,13 +302,14 @@ def calculate_coint_results(merged_prices_comb_df: pd.DataFrame, ticker, min_per
 
 
 def create_valid_ticker_combs(ticker_data, min_period_yrs: float, num_tickers_in_basket: int,
-                              max_half_life: int, min_half_life: float, time_zones=None, save_all=True, time_interval='daily'):
+                              max_half_life: int, min_half_life: float, time_zones=None, save_all=True, time_interval='daily',
+                              use_close_prices: bool = False):
 
     # only consider tickers with sufficient liquidity
     ticker_data = filter_high_liquidity_tickers(ticker_data)
 
     # create a price df, timezone and currency for each ticker
-    ticker_data = build_price_df(ticker_data)
+    ticker_data = build_price_df(ticker_data, time_interval=time_interval, use_close_prices=use_close_prices)
 
     # create num_tickers_in_basket combinations of ticker data, grouping by timeZone
     time_zone_ticker_groups = group_timeZone(ticker_data)
@@ -358,7 +360,8 @@ if __name__== '__main__':
     # ticker_data = import_ticker_data(tickers=['EWA', 'EWC', 'DIA', 'IYT'],
     #                                  start_date=start_date,
     #                                  end_date=end_date,
-    #                                  time_interval=time_interval)
+    #                                  time_interval='daily')
+
     ticker_data = load_ticker_data_json(json_path)
 
     # calculating valid ticker combinations
@@ -366,7 +369,8 @@ if __name__== '__main__':
     valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
                                                    num_tickers_in_basket=num_tickers_in_basket,
                                                    max_half_life=max_half_life, min_half_life=min_half_life,
-                                                   time_zones=time_zones, save_all=False, time_interval=time_interval)
+                                                   time_zones=time_zones, save_all=False, time_interval=time_interval,
+                                                   use_close_prices=use_close_prices)
 
     # saving valid ticker combinations
     print('Saving results')

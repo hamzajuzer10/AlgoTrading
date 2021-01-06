@@ -18,17 +18,18 @@ start_date = '2006-04-26'
 end_date = '2012-04-09'
 time_interval = 'weekly'
 time_zones = [-18000, 0]
+use_close_prices = True
 
 
 def create_ticker_combs_csv(ticker_data, num_tickers_in_basket: int,
-                           formatted_file_path, time_zones=None):
+                           formatted_file_path, time_zones=None, use_close_prices=False):
 
     # only consider tickers with sufficient liquidity
     # given yahoo ticker screener has a 500 units end of day vol filter, we keep min volume to 1000 units per day
     ticker_data = filter_high_liquidity_tickers(data=ticker_data, min_last_n_day_vol=1000)
 
     # create a price df, timezone and currency for each ticker - use close prices
-    ticker_data = build_price_df(ticker_data, use_close_prices=True, time_interval=time_interval)
+    ticker_data = build_price_df(ticker_data, use_close_prices=use_close_prices, time_interval=time_interval)
 
     # create num_tickers_in_basket combinations of ticker data, grouping by timeZone
     time_zone_ticker_groups = group_timeZone(ticker_data)
@@ -81,4 +82,4 @@ if __name__== '__main__':
     # calculating valid ticker combinations
     print('Reformatting ticker combinations and saving into csv...')
     create_ticker_combs_csv(ticker_data, num_tickers_in_basket=num_tickers_in_basket,
-                            formatted_file_path=csv_path, time_zones=time_zones)
+                            formatted_file_path=csv_path, time_zones=time_zones, use_close_prices=use_close_prices)

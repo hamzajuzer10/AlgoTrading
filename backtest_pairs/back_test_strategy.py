@@ -14,8 +14,8 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
         ('n_dim_state', None),
         ('Ve', None),
         ('kalman_averaging', False),
-        ('entry_sqrt_q_multiplier', 1.2), # between 0.7 and 1.2
-        ('exit_sqrt_q_multiplier', 0), # between 0 and 0.3
+        ('entry_sqrt_q_multiplier', 1), # between 1 and 1.5
+        ('exit_sqrt_q_multiplier', 0), # between 0 and 1
         ('initialisation_period', 30),
         ('risk', 0.7)
     )

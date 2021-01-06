@@ -18,13 +18,14 @@ pd.set_option('display.width', 2000)
 
 etf_ticker_path = '/backtest_pairs/data/etf_tickers_07_2020.csv'
 start_date = '2018-06-01'
-end_date = '2020-06-01'
-time_interval = 'daily'
-time_zones = [-14400]
+end_date = '2020-12-01'
+time_interval = 'weekly'
+time_zones = [-18000, 0]
 num_tickers_in_basket = 2
 min_period_yrs = 1.5
-max_half_life = 30 # in time interval units
-min_half_life = 2 # in time interval units
+max_half_life = 12 # in time interval units, 30 if days, 12 if weeks
+min_half_life = 2 # in time interval units, 2 is default
+use_close_prices = True
 
 class MyKalmanPython:
 
@@ -491,31 +492,32 @@ def estimate_returns(frame: pd.DataFrame, beta_cols: list,
 
 if __name__== '__main__':
 
-    # # download and import data
-    # print('Importing ticker data')
-    # ticker_data = import_ticker_data(tickers=['XCEM', 'RXE.TO'],
-    #                                  start_date=start_date,
-    #                                  end_date=end_date,
-    #                                  time_interval=time_interval)
-    #
-    # # calculating valid ticker combinations
-    # print('Calculating valid ticker combinations')
-    # valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
-    #                                                num_tickers_in_basket=num_tickers_in_basket,
-    #                                                max_half_life=max_half_life, min_half_life=min_half_life,
-    #                                                time_zones=time_zones, save_all=True, time_interval=time_interval)
-    #
-    # if valid_combinations.shape[0] == 0:
-    #     warnings.warn('No valid ticker combinations to process!')
-    #     sys.exit(0)
-    #
-    # # Filter only on valid combinations
-    # print('Filtering valid ticker combinations only')
-    # valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
+    # download and import data
+    print('Importing ticker data')
+    ticker_data = import_ticker_data(tickers=['IXJ', 'TMF'],
+                                     start_date=start_date,
+                                     end_date=end_date,
+                                     time_interval='daily')
 
-    # Load valid combination from file
-    print('Loading valid ticker combinations')
-    valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\valid_coint_results_df_12_2020_weekly.pkl")
+    # calculating valid ticker combinations
+    print('Calculating valid ticker combinations')
+    valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
+                                                   num_tickers_in_basket=num_tickers_in_basket,
+                                                   max_half_life=max_half_life, min_half_life=min_half_life,
+                                                   time_zones=time_zones, save_all=True, time_interval=time_interval,
+                                                   use_close_prices=use_close_prices)
+
+    if valid_combinations.shape[0] == 0:
+        warnings.warn('No valid ticker combinations to process!')
+        sys.exit(0)
+
+    # Filter only on valid combinations
+    print('Filtering valid ticker combinations only')
+    valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
+
+    # # Load valid combination from file
+    # print('Loading valid ticker combinations')
+    # valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\valid_coint_results_df_12_2020_weekly.pkl")
 
     if valid_combinations.shape[0] == 0:
         warnings.warn('No valid ticker combinations to process!')
@@ -525,9 +527,9 @@ if __name__== '__main__':
     print('Reformatting valid ticker combination data')
     valid_combinations = reformat_data(valid_combinations, zero_mean=False)
 
-    # Test Kalman Filter active code on ticker
+    # # Test Kalman Filter active code on ticker
     # print('Applying online Kalman Filter on valid ticker combination data')
-    # valid_combinations['APR_active'], valid_combinations['Sharpe_active'] = zip(*valid_combinations.apply(apply_active_Kalman_filter, args=(False, None, '2020-02-01'), axis=1))
+    # valid_combinations['APR_active'], valid_combinations['Sharpe_active'] = zip(*valid_combinations.apply(apply_active_Kalman_filter, args=(False, None, end_date), axis=1))
 
     # Test Kalman Filter active code with price averaging on ticker
     # print('Applying online Kalman Filter with price averaging on valid ticker combination data')
@@ -535,10 +537,10 @@ if __name__== '__main__':
     #     *valid_combinations.apply(apply_active_Kalman_filter, args=(True, None, None), axis=1))
 
     print('Applying raw Kalman Filter on valid ticker combination data')
-    valid_combinations['APR'], valid_combinations['Sharpe'] = zip(*valid_combinations.apply(apply_raw_Kalman_filter, args=(False, None, '2020-12-01'), axis=1))
+    valid_combinations['APR'], valid_combinations['Sharpe'] = zip(*valid_combinations.apply(apply_raw_Kalman_filter, args=(False, None, end_date), axis=1))
 
     # Save dataframe
-    print('Saving results')
-    valid_combinations.to_pickle(
-        save_file_path(folder_name='coint_results', filename='kalman_results_df_12_2020_weekly.pkl'))
+    # print('Saving results')
+    # valid_combinations.to_pickle(
+    #     save_file_path(folder_name='coint_results', filename='kalman_results_df_12_2020_weekly.pkl'))
 

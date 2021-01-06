@@ -13,14 +13,15 @@ json_path = "C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv
 save_file_name = "valid_coint_results_df_12_2020_weekly.pkl" # saved in the coint_results folder
 max_date = '2020-10-31'
 time_interval = 'weekly'
+use_close_prices = True
 
-def build_merged_prices_comb_df(results_df: pd.DataFrame, ticker_data_path: str, time_interval: str):
+def build_merged_prices_comb_df(results_df: pd.DataFrame, ticker_data_path: str, time_interval: str, use_close_prices: bool = False):
 
     # Load ticker data from path
     ticker_data = load_ticker_data_json(ticker_data_path)
 
     # Build price df
-    ticker_data = build_price_df(ticker_data, time_interval=time_interval)
+    ticker_data = build_price_df(ticker_data, time_interval=time_interval, use_close_prices=use_close_prices)
 
     # For each row in results_df
     results_df.reset_index(drop=True, inplace=True)
@@ -69,7 +70,7 @@ if __name__== '__main__':
     coint_ticker_pos_results['ticker'] = coint_ticker_pos_results.apply(lambda x: ast.literal_eval(x['ticker']), axis=1)
     coint_ticker_pos_results['johansen_eigenvectors'] = coint_ticker_pos_results.apply(lambda x: ast.literal_eval(x['johansen_eigenvectors']), axis=1)
 
-    coint_ticker_pos_results = build_merged_prices_comb_df(coint_ticker_pos_results, json_path, time_interval)
+    coint_ticker_pos_results = build_merged_prices_comb_df(coint_ticker_pos_results, json_path, time_interval=time_interval, use_close_prices=use_close_prices)
 
     # saving valid ticker combinations
     print('Saving results')
