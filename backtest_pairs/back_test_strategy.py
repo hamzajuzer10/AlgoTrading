@@ -2,6 +2,43 @@ import backtrader as bt
 import numpy as np
 from backtest_pairs.kalman_filter import MyKalmanPython
 from math import sqrt, floor
+import pandas as pd
+
+
+def get_inv_perc_diff_df(df: pd.DataFrame, init_date, time_interval='daily'):
+
+
+    # get the init value
+    if time_interval == "daily":
+        min_date = init_date + pd.Timedelta(days=1)
+    elif time_interval == "weekly":
+        min_date = init_date + pd.Timedelta(days=7)
+
+
+    df = df[df.index >= (min_date)]
+
+    # get min date in dataframe
+    min_date = df.index.min()
+
+    col_name = df.columns.tolist()[0]
+    init_value = df[col_name].iloc[0]
+
+    if time_interval == "daily":
+        min_date = min_date - pd.Timedelta(days=1)
+    elif time_interval == "weekly":
+        min_date = min_date - pd.Timedelta(days=7)
+
+    line = pd.DataFrame({col_name: init_value}, index=[min_date])
+
+    # transformation
+    df[col_name] = df[col_name]/100
+    df[col_name] = df[col_name]+1
+    df[col_name] = df[col_name]*init_value
+
+    # concatenate two dataframe
+    df2 = pd.concat([line, df])
+
+    return df2
 
 
 class PyKalman_PairTradingStrategy(bt.Strategy):
@@ -17,7 +54,7 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
         ('entry_sqrt_q_multiplier', 1), # between 1 and 1.5
         ('exit_sqrt_q_multiplier', 0), # between 0 and 1
         ('initialisation_period', 30),
-        ('risk', 0.7)
+        ('risk', 1)
     )
 
     def log(self, txt, dt=None):
@@ -67,9 +104,11 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
 
     def notify_order(self, order):
         if order.status in [bt.Order.Submitted, bt.Order.Accepted]:
+            self.bar_executed[order.ref] = order
             return  # Await further notifications
 
         if order.status == order.Completed:
+            self.bar_executed.pop(order.ref)
             if order.isbuy():
                 self.log(
                     'BUY EXECUTED, Price: %.2f, Cost: %.2f, Comm %.2f' %
@@ -82,12 +121,20 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
                           order.executed.value,
                           order.executed.comm))
 
-        elif order.status in [order.Expired, order.Canceled, order.Margin]:
-            self.log('%s ,' % order.Status[order.status])
-            pass  # Simply log
+        elif order.status in [order.Margin]:
 
-        # Allow new orders
-        self.orderid = None
+            self.bar_executed.pop(order.ref)
+            self.log('%s ,' % order.Status[order.status])
+            self.log('%s ,' % 'Closing all open positions')
+
+            self.close_pos = True
+
+        elif order.status in [order.Expired, order.Canceled]:
+
+            self.bar_executed.pop(order.ref)
+            self.log('%s ,' % order.Status[order.status])
+
+            self.close_pos = True
 
         # Set notify pos to true
         self.notify_pos = True
@@ -101,7 +148,8 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
 
     def __init__(self):
         # To control operation entries
-        self.orderid = None # To ensure we do not make more trades if our order is pending
+        self.bar_executed = {}
+        self.close_pos = False
         self.optimal_size = None # To calculate our sizing
         self.pos = None # To check if we are long or short
         self.notify_pos = True # To check if there is a change for notification
@@ -138,8 +186,22 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
         if len(self) < self.params.initialisation_period:
             return  # return if still in initialisation period
 
-        if self.orderid:
+        if len(self.bar_executed.keys()) > 0:
             return  # if an order is active, no new orders are allowed
+
+        if self.close_pos:
+
+            # close all open positions
+            # (triggered when margin calls cancel orders or any orders are cancelled or expired)
+            self.close(data=self.datas[0])
+            for i in range(len(self.params.x_ticker)):
+                x_ticker = self.params.x_ticker[i]
+                self.close(data=self.datas[i + 1])
+            self.pos = None
+
+            # set flag to false
+            self.close_pos = False
+            return
 
         if self.notify_pos:
             # print position
@@ -165,7 +227,6 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
                 # close your position
                 self.close(data=self.datas[0])
                 for i in range(len(self.params.x_ticker)):
-                    x_ticker = self.params.x_ticker[i]
                     self.close(data=self.datas[i + 1])
                 self.pos = None
 
@@ -174,7 +235,6 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
                 # close your position
                 self.close(data=self.datas[0])
                 for i in range(len(self.params.x_ticker)):
-                    x_ticker = self.params.x_ticker[i]
                     self.close(data=self.datas[i + 1])
                 self.pos = None
 
@@ -183,7 +243,6 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
 
                 # short x (only need to rebalance x)
                 for i in range(len(self.params.x_ticker)):
-                    x_ticker = self.params.x_ticker[i]
                     value = -self.optimal_size * state_mean_[i] * self.datas[i + 1].close[0]
                     size = self.ord_tgt_size(current_size=self.getposition(data=self.datas[i + 1]).size,
                                              current_price=self.datas[i + 1].close[0],
@@ -198,7 +257,6 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
 
                 # long x (only need to rebalance x)
                 for i in range(len(self.params.x_ticker)):
-                    x_ticker = self.params.x_ticker[i]
                     value = self.optimal_size * state_mean_[i] * self.datas[i + 1].close[0]
                     size = self.ord_tgt_size(current_size=self.getposition(data=self.datas[i + 1]).size,
                                              current_price=self.datas[i + 1].close[0],
@@ -232,9 +290,8 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
                 self.buy(data=self.datas[0], size=self.optimal_size)
 
                 for i in range(len(self.params.x_ticker)):
-                    x_ticker = self.params.x_ticker[i]
                     value = -self.optimal_size * state_mean_[i] * self.datas[i + 1].close[0]
-                    size = self.ord_tgt_size(current_size=self.getposition(data=self.datas[i + 1]).size,
+                    size = self.ord_tgt_size(current_size=0,
                                              current_price=self.datas[i + 1].close[0],
                                              target_value=value)
 
@@ -265,9 +322,8 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
                 self.sell(data=self.datas[0], size=-self.optimal_size)
 
                 for i in range(len(self.params.x_ticker)):
-                    x_ticker = self.params.x_ticker[i]
                     value = self.optimal_size * state_mean_[i] * self.datas[i + 1].close[0]
-                    size = self.ord_tgt_size(current_size=self.getposition(data=self.datas[i + 1]).size,
+                    size = self.ord_tgt_size(current_size=0,
                                              current_price=self.datas[i + 1].close[0],
                                              target_value=value)
 

@@ -98,16 +98,10 @@ class CommIB(bt.CommInfoBase): # Interactive broker tiered US commission charges
 
 
 def runstrategy(valid_combinations: pd.Series
-                , benchmark_data: pd.Series
                 , cash=10000
-                , results_folder_name='results'
-                , min_final_pfolio_value_for_tearsheet_perc=1.2
-                , min_Sharpe_for_tearsheet=2.5
                 , min_date: str = None
                 , max_date: str = None
-                , short_interest=0.05
-                , time_interval='daily'
-                , use_benchmark_prices=False):
+                , short_interest=0.05):
 
     print('Running strategy on {} combination'.format(valid_combinations['ticker']))
 
@@ -194,73 +188,8 @@ def runstrategy(valid_combinations: pd.Series
     # ---- Format the values from results ----
     df_values = pd.DataFrame(results[0].analyzers.getbyname("cashmarket").get_analysis()).T
     df_values = df_values.iloc[:, 1]
-    returns = qs.utils.to_returns(df_values)
-    returns.index = pd.to_datetime(returns.index)
 
-    # start from the first non-zero return entry in the series - removes all returns during initialisation period
-    start = returns.loc[returns != 0].index
-    returns = returns[returns.index >= start.min()]
-
-    if time_interval == 'daily':
-        n_periods = 252
-    elif time_interval == 'weekly':
-        n_periods = 52
-
-    mean_returns = returns.mean()
-    std_returns = returns.std()
-
-    neg_returns = returns[returns < 0]
-    neg_std_returns = neg_returns.std()
-
-    # Calculate monthly Sharpe and Sortino ratios
-    if (std_returns != 0) and std_returns:
-        Sharpe = (mean_returns/std_returns)*np.sqrt(n_periods)
-
-    else:
-        Sharpe = None
-
-    if (neg_std_returns != 0) and neg_std_returns:
-        Sortino = (mean_returns/neg_std_returns)*np.sqrt(n_periods)
-    else:
-        Sortino = None
-
-    print("Sharpe ratio: {}".format(Sharpe))
-    print("Sortino ratio: {}".format(Sortino))
-
-    # save the result only if the final pfolio value is greater than starting_pfolio_value * min_final_pfolio_value_for_tearsheet_perc
-    if (final_pfolio_value >= starting_pfolio_value*min_final_pfolio_value_for_tearsheet_perc) and \
-            (Sharpe >= min_Sharpe_for_tearsheet):
-
-        # ----------------------------------------
-
-        # ---- Format the benchmark from SPY.csv ----
-        if min_date:
-            # cap at min date
-            benchmark_data = benchmark_data.loc[min_date:]
-
-        if max_date:
-            # cap at max date
-            benchmark_data = benchmark_data.loc[:max_date]
-
-        # -------------------------------------------
-
-        qs.extend_pandas()
-        output_file_name = "qs_" + 'y_' + valid_combinations['y_ticker'] + '_x_' + '_'.join(valid_combinations['x_ticker']) + '.html'
-        output_file_name = save_file_path(folder_name=results_folder_name, filename=output_file_name, wd=None)
-
-        if use_benchmark_prices:
-            benchmark_data = get_inv_perc_diff_df(benchmark_data, init_date=start.min(), time_interval=time_interval)
-
-        try:
-            qs.reports.html(returns, benchmark=benchmark_data, output=output_file_name)
-
-        except:
-            print('Error generating report for {} combination'.format(valid_combinations['ticker']))
-            print('Unexpected error:{}'.format(sys.exc_info()[0]))
-
-    return starting_pfolio_value, final_pfolio_value, \
-           mean_returns, std_returns, neg_std_returns, \
-           Sharpe, Sortino
+    return starting_pfolio_value, final_pfolio_value, df_values
 
 
 if __name__ == '__main__':
@@ -322,11 +251,7 @@ if __name__ == '__main__':
     print('Running strategy on valid ticker combination data')
     valid_combinations['starting_pfolio_value_backtest'], \
     valid_combinations['final_pfolio_value_backtest'], \
-    valid_combinations['mean_returns'], \
-    valid_combinations['std_returns'], \
-    valid_combinations['neg_std_returns'], \
-    valid_combinations['Sharpe'], \
-    valid_combinations['Sortino'] = zip(*valid_combinations.apply(runstrategy,
+    valid_combinations['pfolio_mtm'] = zip(*valid_combinations.apply(runstrategy,
                                                   args=(benchmark_data[benchmark_ticker]['price_df'], 10000, 'results_ind_12_2020_weekly', 1.4, 2, None, end_date, 0.05, time_interval, True), axis=1))
 
     # # save valid combinations

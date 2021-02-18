@@ -18,7 +18,7 @@ pd.set_option('display.width', 2000)
 
 etf_ticker_path = '/backtest_pairs/data/etf_tickers_07_2020.csv'
 start_date = '2018-06-01'
-end_date = '2020-12-01'
+end_date = '2020-12-31'
 time_interval = 'weekly'
 time_zones = [-18000, 0]
 num_tickers_in_basket = 2
@@ -206,24 +206,31 @@ class MyKalmanPython:
 
 def reformat_data_y_x_tickers(valid_combinations: pd.Series, zero_mean=False):
 
-    # get the Johansen weights
-    p_weights = valid_combinations['johansen_eigenvectors']
     tickers = valid_combinations['ticker']
-
-    # normalise the weights so that the first element is 1
-    if isinstance(p_weights, list):
-        p_weights = pd.Series(p_weights)
-
-    scale = 1/p_weights.iloc[0]
-    p_weights = p_weights*scale*-1
 
     # y is the first security value, x is the remaining
     y_ticker = tickers[0]
     x_ticker = tickers[1:]
-    initial_mean = p_weights[1:].to_list() + [0] # 0 is for the constant
 
-    if zero_mean:
-        initial_mean = [0 for x in initial_mean]
+    if valid_combinations['johansen_eigenvectors']:
+        # get the Johansen weights
+        p_weights = valid_combinations['johansen_eigenvectors']
+
+        # normalise the weights so that the first element is 1
+        if isinstance(p_weights, list):
+            p_weights = pd.Series(p_weights)
+
+        scale = 1/p_weights.iloc[0]
+        p_weights = p_weights*scale*-1
+
+        initial_mean = p_weights[1:].to_list() + [0] # 0 is for the constant
+
+        if zero_mean:
+            initial_mean = [0 for x in initial_mean]
+
+    else:
+
+        initial_mean = [0 for x in np.arange(len(tickers))]
 
     return y_ticker, x_ticker, initial_mean, len(x_ticker) + 1
 
@@ -259,7 +266,8 @@ def reformat_data(df: pd.DataFrame, zero_mean=False):
     return df
 
 
-def apply_active_Kalman_filter(valid_combinations: pd.Series, price_averaging=False, min_date: str = None, max_date: str = None):
+def apply_active_Kalman_filter(valid_combinations: pd.Series, price_averaging=False, min_date: str = None, max_date: str = None,
+                               time_interval='daily'):
 
     y_series = valid_combinations['merged_prices_comb_df'][valid_combinations['y_ticker']]
     x_df = valid_combinations['merged_prices_comb_df'][list(valid_combinations['x_ticker'])]
@@ -312,12 +320,12 @@ def apply_active_Kalman_filter(valid_combinations: pd.Series, price_averaging=Fa
     # estimate returns
     APR, Sharpe = estimate_returns(kf_soln, beta_cols, valid_combinations['y_ticker'],
                                    list(valid_combinations['x_ticker']),
-                                   dim, 'kalman_raw')
+                                   dim, 'kalman_raw', time_interval=time_interval)
 
     return APR, Sharpe
 
 
-def apply_raw_Kalman_filter(valid_combinations: pd.Series, plot=False, min_date: str = None, max_date: str = None):
+def apply_raw_Kalman_filter(valid_combinations: pd.Series, plot=False, min_date: str = None, max_date: str = None, time_interval='daily'):
 
     y_series = valid_combinations['merged_prices_comb_df'][valid_combinations['y_ticker']]
     x_df = valid_combinations['merged_prices_comb_df'][list(valid_combinations['x_ticker'])]
@@ -420,14 +428,14 @@ def apply_raw_Kalman_filter(valid_combinations: pd.Series, plot=False, min_date:
 
     # estimate returns
     APR, Sharpe = estimate_returns(kf_soln, beta_cols, valid_combinations['y_ticker'], list(valid_combinations['x_ticker']),
-                                   dim, 'kalman_raw', plot=plot)
+                                   dim, 'kalman_raw', plot=plot, time_interval=time_interval)
 
     return APR, Sharpe
 
 
 def estimate_returns(frame: pd.DataFrame, beta_cols: list,
                      y_ticker: str, x_cols: list, dim: int, run_name: str, initialisation_period=30,
-                     plot=False):
+                     plot=False, time_interval='daily'):
 
     # Estimate returns excluding transaction costs and slippage
     frame['longsEntry'] = frame.e < -frame.sqrt_q
@@ -483,8 +491,13 @@ def estimate_returns(frame: pd.DataFrame, beta_cols: list,
         sns_plot.figure.clf()
 
     # (np.cumprod(1 + ret) - 1).plot()
-    APR = np.prod(1 + ret) ** (252 / len(ret)) - 1
-    Sharpe = np.sqrt(252) * np.mean(ret) / np.std(ret)
+    if time_interval=='daily':
+        timeframe = 252
+    elif time_interval=='weekly':
+        timeframe = 52
+
+    APR = np.prod(1 + ret) ** (timeframe / len(ret)) - 1
+    Sharpe = np.sqrt(timeframe) * np.mean(ret) / np.std(ret)
     print('Processed ticker: {a}, {b} - APR={c}, Sharpe={d}'.format(a=y_ticker, b=x_cols, c=APR, d=Sharpe))
 
     return APR, Sharpe
@@ -494,7 +507,7 @@ if __name__== '__main__':
 
     # download and import data
     print('Importing ticker data')
-    ticker_data = import_ticker_data(tickers=['IXJ', 'TMF'],
+    ticker_data = import_ticker_data(tickers=['TLT', 'KFYP'],
                                      start_date=start_date,
                                      end_date=end_date,
                                      time_interval='daily')
@@ -525,19 +538,19 @@ if __name__== '__main__':
 
     # For each valid combination
     print('Reformatting valid ticker combination data')
-    valid_combinations = reformat_data(valid_combinations, zero_mean=False)
+    valid_combinations = reformat_data(valid_combinations, zero_mean=True)
 
     # # Test Kalman Filter active code on ticker
     # print('Applying online Kalman Filter on valid ticker combination data')
-    # valid_combinations['APR_active'], valid_combinations['Sharpe_active'] = zip(*valid_combinations.apply(apply_active_Kalman_filter, args=(False, None, end_date), axis=1))
+    # valid_combinations['APR_active'], valid_combinations['Sharpe_active'] = zip(*valid_combinations.apply(apply_active_Kalman_filter, args=(False, None, end_date, time_interval), axis=1))
 
     # Test Kalman Filter active code with price averaging on ticker
     # print('Applying online Kalman Filter with price averaging on valid ticker combination data')
     # valid_combinations['APR_active_pa'], valid_combinations['Sharpe_active_pa'] = zip(
-    #     *valid_combinations.apply(apply_active_Kalman_filter, args=(True, None, None), axis=1))
+    #     *valid_combinations.apply(apply_active_Kalman_filter, args=(True, None, None, time_interval), axis=1))
 
     print('Applying raw Kalman Filter on valid ticker combination data')
-    valid_combinations['APR'], valid_combinations['Sharpe'] = zip(*valid_combinations.apply(apply_raw_Kalman_filter, args=(False, None, end_date), axis=1))
+    valid_combinations['APR'], valid_combinations['Sharpe'] = zip(*valid_combinations.apply(apply_raw_Kalman_filter, args=(False, None, end_date, time_interval), axis=1))
 
     # Save dataframe
     # print('Saving results')

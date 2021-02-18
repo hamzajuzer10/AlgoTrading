@@ -204,8 +204,6 @@ def calculate_coint_results(merged_prices_comb_df: pd.DataFrame, ticker, min_per
         cols = merged_prices_comb_df.columns.tolist()
     p_weights = pd.Series(johansen_eigenvectors, index=cols)
 
-    # TODO: consider extracting trace and eigen stats for r<=1, r<=2, etc
-
     # check if trace and eigen stat values of johansen test are greater than 95% crit level
     if (johansen_trace_stat > johansen_95_p_trace) and (johansen_eigen_stat > johansen_95_p_eigen):
 
@@ -303,10 +301,13 @@ def calculate_coint_results(merged_prices_comb_df: pd.DataFrame, ticker, min_per
 
 def create_valid_ticker_combs(ticker_data, min_period_yrs: float, num_tickers_in_basket: int,
                               max_half_life: int, min_half_life: float, time_zones=None, save_all=True, time_interval='daily',
-                              use_close_prices: bool = False):
+                              use_close_prices: bool = False, min_liq_n_days=90, min_liq_last_n_day_vol=10000,
+                              force_through=False):
 
-    # only consider tickers with sufficient liquidity
-    ticker_data = filter_high_liquidity_tickers(ticker_data)
+    if not force_through:
+        # only consider tickers with sufficient liquidity
+        ticker_data = filter_high_liquidity_tickers(ticker_data, n_days=min_liq_n_days,
+                                                    min_last_n_day_vol=min_liq_last_n_day_vol)
 
     # create a price df, timezone and currency for each ticker
     ticker_data = build_price_df(ticker_data, time_interval=time_interval, use_close_prices=use_close_prices)
@@ -336,16 +337,30 @@ def create_valid_ticker_combs(ticker_data, min_period_yrs: float, num_tickers_in
                                              right_index=True, how='outer')
 
         merged_prices_comb_df.dropna(inplace=True)
-        result_dict = calculate_coint_results(merged_prices_comb_df=merged_prices_comb_df,
-                                              ticker=i,
-                                              min_period_yrs=min_period_yrs,
-                                              max_half_life=max_half_life,
-                                              min_half_life=min_half_life,
-                                              save_price_df=True,
-                                              save_all=save_all,
-                                              print_verbose=True,
-                                              print_file=True,
-                                              time_interval=time_interval)
+
+        if not force_through:
+            result_dict = calculate_coint_results(merged_prices_comb_df=merged_prices_comb_df,
+                                                  ticker=i,
+                                                  min_period_yrs=min_period_yrs,
+                                                  max_half_life=max_half_life,
+                                                  min_half_life=min_half_life,
+                                                  save_price_df=True,
+                                                  save_all=save_all,
+                                                  print_verbose=True,
+                                                  print_file=True,
+                                                  time_interval=time_interval)
+        else:
+            result_dict = create_dict(ticker=i, min_date=None, max_date=None, n_samples=None,
+                                      merged_prices_comb_df=merged_prices_comb_df, sample_pass=True,
+                                      johansen_90_p_trace=None, johansen_95_p_trace=None,
+                                      johansen_99_p_trace=None, johansen_trace_stat=None,
+                                      johansen_90_p_eigen=None, johansen_95_p_eigen=None,
+                                      johansen_99_p_eigen=None, johansen_eigen_stat=None,
+                                      johansen_eigenvectors=None,
+                                      johansen_eigenvalue=None, adf_test_stat=None,
+                                      adf_99_p_stat=None, adf_95_p_stat=None,
+                                      adf_90_p_stat=None,
+                                      hurst_exp=None, half_life_=None, comment="Force through ticker", save_price_df=True)
 
         if result_dict:
             valid_combinations = valid_combinations.append(result_dict, ignore_index=True)
