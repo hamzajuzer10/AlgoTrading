@@ -69,7 +69,7 @@ def create_initial_csv(csv_path: str,
     merged_prices_comb_df['exit_sqrt_q_multiplier'] = exit_sqrt_q_multiplier
     merged_prices_comb_df['commission'] = None
     merged_prices_comb_df['short_interest'] = None
-
+    merged_prices_comb_df['comments'] = None
 
     # add field for positions of y and x ticker (units)
     for ticker in tickers:
@@ -260,9 +260,10 @@ def save_pair_csvs(csv_path: str,
                    purchased_x_ticker_units: list,
                    cash: float,
                    commission=None,
-                   short_interest=None,
+                   short_interest=0,
                    entry_sqrt_q_multiplier=1,
-                   exit_sqrt_q_multiplier=0):
+                   exit_sqrt_q_multiplier=0,
+                   comments=None):
 
     # Read csv file with data
     print('Reading csv data...')
@@ -281,13 +282,17 @@ def save_pair_csvs(csv_path: str,
         warnings.warn("Observed date is not today's date...!")
 
     # warn if commissions and short interest is +ve
-    if commission > 0 or short_interest>0:
+    if commission > 0 or short_interest > 0:
         warnings.warn("Commissions or short interest is +ve where it should be -ve...!")
 
-    if purchased_y_ticker_units>0:
+    if (purchased_y_ticker_units > 0) and (sum(purchased_x_ticker_units) < 0):
         portfolio_position = 'long'
-    else:
+    elif (purchased_y_ticker_units < 0) and (sum(purchased_x_ticker_units) > 0):
         portfolio_position = 'short'
+    elif (purchased_y_ticker_units == 0) and (sum(purchased_x_ticker_units) == 0):
+        portfolio_position = None
+    else:
+        raise ValueError("Incorrect portfolio positions specified!")
 
     # add the observed prices at the end
     y_ticker_pos = y_ticker + '_position'
@@ -301,7 +306,8 @@ def save_pair_csvs(csv_path: str,
                      'exit_sqrt_q_multiplier': exit_sqrt_q_multiplier,
                      'cash': cash,
                      'commission': commission,
-                     'short_interest': short_interest}
+                     'short_interest': short_interest,
+                     'comments': comments}
 
     for i in range(len(x_tickers_list)):
         observed_dict[x_tickers_list[i]] = purchased_x_ticker_price[i]
@@ -388,23 +394,24 @@ if __name__ == '__main__':
     #                    use_close_prices=True,
     #                    cash=10000)
 
-    # # read csv
+    # read csv
     read_pair_csvs(csv_path="ib_trading/shadow_trading_data/y_EIS_x_PLTM.csv",
-                   observation_date='2021-02-17',
+                   observation_date='2021-04-01',
                    y_ticker='EIS',
-                   observed_y_ticker_price=66.95,
+                   observed_y_ticker_price=65.66,
                    x_tickers_list=['PLTM'],
-                   observed_x_ticker_price=[12.41])
+                   observed_x_ticker_price=[11.70])
 
-    # # write csv
+    # write csv
     # save_pair_csvs(csv_path="ib_trading/shadow_trading_data/y_EIS_x_PLTM.csv",
-    #                observation_date='2021-02-08',  # '2019-12-31'
+    #                observation_date='2021-03-01',  # '2019-12-31'
     #                y_ticker='EIS',
-    #                purchased_y_ticker_price=66.39,
-    #                purchased_y_ticker_units=77,
+    #                purchased_y_ticker_price=65.71,
+    #                purchased_y_ticker_units=0,
     #                x_tickers_list=['PLTM'],
-    #                purchased_x_ticker_price=[11.54],
-    #                purchased_x_ticker_units=[-439.2],
-    #                cash=1000000,
-    #                commission=0)
+    #                purchased_x_ticker_price=[11.72],
+    #                purchased_x_ticker_units=[0],
+    #                cash=999695,
+    #                commission=-1.03,
+    #                comments="No EIS available to short - otherwise, advised to short EIS long PLTM!")
 

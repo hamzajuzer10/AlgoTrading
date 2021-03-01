@@ -95,12 +95,13 @@ class PyKalman_PairTradingStrategy(bt.Strategy):
         '''Returns the value of the position'''
 
         self.log(
-            'Current cash ($): %.2f, Ticker %s - Position (units): %.2f, Previous value($): %.2f, Todays value ($): %.2f' %
+            'Current cash ($): %.2f, Ticker %s - Position (units): %.2f, Previous value($): %.2f, Todays value ($): %.2f, Todays Portfolio MTM ($): %.2f' %
             (self.broker.get_cash(),
              ticker,
              current_size,
              current_size*yesterdays_price,
-             current_size*current_price))
+             current_size*current_price,
+             self.broker.getvalue()))
 
     def notify_order(self, order):
         if order.status in [bt.Order.Submitted, bt.Order.Accepted]:

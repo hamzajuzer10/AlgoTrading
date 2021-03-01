@@ -13,9 +13,9 @@ import os
 import csv
 from datetime import datetime
 
-etf_ticker_path = '/backtest_pairs/data/etf_tickers_07_2020.csv'
-start_date = '2018-06-01'
-end_date = '2021-02-15'
+start_date = '2020-06-20'
+end_date = '2021-02-23'
+ticker_list = [['EIS', 'PLTM'], ['PPLT', 'RHS'], ['DWMC', 'SGDJ'], ['BBCA', 'PLTM'], ['TECL', 'SLVP'], ['LTL', 'FLLA'], ['YINN', 'NGE'], ['CURE', 'GOEX'], ['MLPB', 'BMLP'], ['MEXX', 'SMHB']]
 time_interval = 'weekly'
 time_zones = [-18000, 0]
 num_tickers_in_basket = 2
@@ -187,22 +187,154 @@ def runstrategy(valid_combinations: pd.Series
 
     # ---- Format the values from results ----
     df_values = pd.DataFrame(results[0].analyzers.getbyname("cashmarket").get_analysis()).T
-    df_values = df_values.iloc[:, 1]
+    df_values = df_values[1]
 
-    return starting_pfolio_value, final_pfolio_value, df_values
+    return starting_pfolio_value, final_pfolio_value, df_values.to_dict()
+
+
+def process_returns(tickers: list, # list of lists
+                    results_df: pd.DataFrame,
+                    benchmark_data: pd.Series,
+                    results_folder_name='results',
+                    time_interval='daily',
+                    use_benchmark_prices=False):
+
+    # convert tickers to list of tuples
+    tickers = [tuple(l) for l in tickers]
+
+    # filter only on tickers in the ticker list
+    results_df = results_df[results_df['ticker'].isin(tickers)]
+
+    # combine all pfolio results in results_df
+    df_values = pd.DataFrame(columns=['date', 'value'])
+    for row in results_df.iterrows():
+
+        # convert to dataframe
+        df_values_ = pd.DataFrame(row[1]['pfolio_mtm'].items(), columns=['date', 'value'])
+        df_values_.rename(columns={'value': row[0]}, inplace=True)
+        df_values = pd.merge(df_values, df_values_, on="date", how="outer")
+
+    # set index to date
+    df_values.set_index('date', drop=True, inplace=True)
+
+    # drop value col as it is only nan
+    df_values.drop(columns=['value'], inplace=True)
+
+    #sort and fill na
+    df_values.sort_index(inplace=True)
+    df_values.fillna(method='bfill', inplace=True)
+
+    # sum the returns
+    df_values['ttl'] = df_values.sum(axis=1)
+
+    # only keep select cols
+    df_values = df_values['ttl']
+
+    returns = qs.utils.to_returns(df_values)
+    returns.index = pd.to_datetime(returns.index)
+
+    # start from the first non-zero return entry in the series - removes all returns during initialisation period
+    start = returns.loc[returns != 0].index
+    returns = returns[returns.index >= start.min()]
+
+    if time_interval == 'daily':
+        n_periods = 252
+    elif time_interval == 'weekly':
+        n_periods = 52
+
+    mean_returns = returns.mean()
+    std_returns = returns.std()
+
+    neg_returns = returns[returns < 0]
+    neg_std_returns = neg_returns.std()
+
+    # Calculate monthly Sharpe and Sortino ratios
+    if (std_returns != 0) and std_returns:
+        Sharpe = (mean_returns / std_returns) * np.sqrt(n_periods)
+
+    else:
+        Sharpe = None
+
+    if (neg_std_returns != 0) and neg_std_returns:
+        Sortino = (mean_returns / neg_std_returns) * np.sqrt(n_periods)
+    else:
+        Sortino = None
+
+    print("Sharpe ratio: {}".format(Sharpe))
+    print("Sortino ratio: {}".format(Sortino))
+
+    qs.extend_pandas()
+    all_tickers = [j for i in tickers for j in i]
+    output_file_name = "qs_" + 'comb_' + '_'.join(all_tickers) + '.html'
+    output_file_name = save_file_path(folder_name=results_folder_name, filename=output_file_name, wd=None)
+
+    if use_benchmark_prices:
+        benchmark_data = get_inv_perc_diff_df(benchmark_data, init_date=start.min(), time_interval=time_interval)
+
+    try:
+        qs.reports.html(returns, benchmark=benchmark_data, output=output_file_name)
+
+    except:
+        print('Error generating report for {} combination'.format(valid_combinations['ticker']))
+        print('Unexpected error:{}'.format(sys.exc_info()[0]))
 
 
 if __name__ == '__main__':
 
-    # download and import data
-    print('Importing ticker data')
-    ticker_data = import_ticker_data(tickers=['EIS', 'PLTM'],
-                                     start_date=start_date,
-                                     end_date=end_date,
-                                     time_interval='daily')
+    # results_df
+    results_df = pd.DataFrame()
 
-    # benchmark data
-    benchmark_ticker = '^VIX' #SPY
+    # loop through ticker list
+    for tickers in ticker_list:
+
+        # download and import data
+        print('Importing ticker data')
+        ticker_data = import_ticker_data(tickers=tickers,
+                                         start_date=start_date,
+                                         end_date=end_date,
+                                         time_interval='daily')
+
+
+        # calculating valid ticker combinations
+        print('Calculating valid ticker combinations')
+        valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
+                                                       num_tickers_in_basket=num_tickers_in_basket,
+                                                       max_half_life=max_half_life, min_half_life=min_half_life,
+                                                       time_zones=time_zones, save_all=True, time_interval=time_interval,
+                                                       use_close_prices=use_close_prices, min_liq_n_days=180,
+                                                       min_liq_last_n_day_vol=1000, force_through=True)
+
+        if valid_combinations.shape[0] == 0:
+            warnings.warn('No valid ticker combinations to process!')
+            sys.exit(0)
+
+        # Filter only on valid combinations
+        print('Filtering valid ticker combinations only')
+        valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
+
+        if valid_combinations.shape[0] == 0:
+            warnings.warn('No valid ticker combinations to process!')
+            sys.exit(0)
+
+        # For each valid combination
+        print('Reformatting valid ticker combination data')
+        valid_combinations = reformat_data(valid_combinations, zero_mean=True)
+
+        if valid_combinations.shape[0] == 0:
+            warnings.warn('No valid ticker combinations to process!')
+            sys.exit(0)
+
+        print('Running strategy on valid ticker combination data')
+        valid_combinations['starting_pfolio_value_backtest'], \
+        valid_combinations['final_pfolio_value_backtest'], \
+        valid_combinations['pfolio_mtm'] = zip(*valid_combinations.apply(runstrategy,
+                                                      args=(10000, None, end_date, 0.05), axis=1))
+
+        results_df = pd.concat([results_df, valid_combinations], axis=0)
+        results_df.reset_index(drop=True, inplace=True)
+
+    # download benchmark data
+    benchmark_ticker = 'SPY'  # SPY or ^VIX
     print('Importing benchmark data - {}'.format(benchmark_ticker))
     benchmark_data = import_ticker_data(tickers=[benchmark_ticker],
                                         start_date=start_date,
@@ -211,50 +343,10 @@ if __name__ == '__main__':
 
     benchmark_data = build_price_df(benchmark_data, time_interval=time_interval, use_close_prices=use_close_prices)
 
-    # calculating valid ticker combinations
-    print('Calculating valid ticker combinations')
-    valid_combinations = create_valid_ticker_combs(ticker_data, min_period_yrs=min_period_yrs,
-                                                   num_tickers_in_basket=num_tickers_in_basket,
-                                                   max_half_life=max_half_life, min_half_life=min_half_life,
-                                                   time_zones=time_zones, save_all=True, time_interval=time_interval,
-                                                   use_close_prices=use_close_prices, min_liq_n_days=180,
-                                                   min_liq_last_n_day_vol=1000, force_through=True)
-
-    if valid_combinations.shape[0] == 0:
-        warnings.warn('No valid ticker combinations to process!')
-        sys.exit(0)
-
-    # Filter only on valid combinations
-    print('Filtering valid ticker combinations only')
-    valid_combinations = valid_combinations.loc[valid_combinations['sample_pass'] == True]
-
-    if valid_combinations.shape[0] == 0:
-        warnings.warn('No valid ticker combinations to process!')
-        sys.exit(0)
-
-    # For each valid combination
-    print('Reformatting valid ticker combination data')
-    valid_combinations = reformat_data(valid_combinations, zero_mean=True)
-
-    # # Load valid combination from file
-    # print('Loading valid ticker combinations')
-    # valid_combinations = pd.read_pickle("C:\\Users\\hamzajuzer\\Documents\\Algorithmic Trading\\AlgoTradingv1\\backtest_pairs\\coint_results\\kalman_results_df_12_2020_weekly.pkl")
-
-    if valid_combinations.shape[0] == 0:
-        warnings.warn('No valid ticker combinations to process!')
-        sys.exit(0)
-
-    # # Filter only combinations where estimated Sharpe Ratio >2 and APRs> 25%
-    # valid_combinations = valid_combinations[valid_combinations.Sharpe >= 2]
-    # valid_combinations = valid_combinations[valid_combinations.APR >= 0.25]
-
-    print('Running strategy on valid ticker combination data')
-    valid_combinations['starting_pfolio_value_backtest'], \
-    valid_combinations['final_pfolio_value_backtest'], \
-    valid_combinations['pfolio_mtm'] = zip(*valid_combinations.apply(runstrategy,
-                                                  args=(benchmark_data[benchmark_ticker]['price_df'], 10000, 'results_ind_12_2020_weekly', 1.4, 2, None, end_date, 0.05, time_interval, True), axis=1))
-
-    # # save valid combinations
-    # print('Saving results')
-    # valid_combinations.to_pickle(
-    #     save_file_path(folder_name='results_12_2020_weekly', filename='backtest_results_df.pkl'))
+    # process returns
+    process_returns(ticker_list,
+                    results_df,
+                    benchmark_data[benchmark_ticker]['price_df'],
+                    results_folder_name='results_ind_12_2020_weekly',
+                    time_interval=time_interval,
+                    use_benchmark_prices=False)
