@@ -14,7 +14,7 @@ import csv
 from datetime import datetime
 
 start_date = '2020-06-01'
-end_date = '2021-04-05'
+end_date = '2021-05-06'
 ticker_list = [['EIS', 'PLTM'], ['PPLT', 'RHS'], ['DWMC', 'SGDJ'], ['BBCA', 'PLTM'], ['TECL', 'SLVP'], ['LTL', 'FLLA'], ['YINN', 'NGE'], ['CURE', 'GOEX'], ['MLPB', 'BMLP'], ['MEXX', 'SMHB']]
 time_interval = 'weekly'
 time_zones = [-14400, 0]

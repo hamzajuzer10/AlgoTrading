@@ -15,7 +15,7 @@ from datetime import datetime
 
 etf_ticker_path = '/backtest_pairs/data/etf_tickers_07_2020.csv'
 start_date = '2020-06-01'
-end_date = '2021-04-05'
+end_date = '2021-05-06'
 time_interval = 'weekly'
 time_zones = [-14400, 0]
 num_tickers_in_basket = 2
