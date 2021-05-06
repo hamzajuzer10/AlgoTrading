@@ -13,11 +13,11 @@ import os
 import csv
 from datetime import datetime
 
-start_date = '2020-06-20'
-end_date = '2021-02-23'
+start_date = '2020-06-01'
+end_date = '2021-04-05'
 ticker_list = [['EIS', 'PLTM'], ['PPLT', 'RHS'], ['DWMC', 'SGDJ'], ['BBCA', 'PLTM'], ['TECL', 'SLVP'], ['LTL', 'FLLA'], ['YINN', 'NGE'], ['CURE', 'GOEX'], ['MLPB', 'BMLP'], ['MEXX', 'SMHB']]
 time_interval = 'weekly'
-time_zones = [-18000, 0]
+time_zones = [-14400, 0]
 num_tickers_in_basket = 2
 min_period_yrs = 1.5
 max_half_life = 12 # in time interval units, 30 if days, 12 if weeks

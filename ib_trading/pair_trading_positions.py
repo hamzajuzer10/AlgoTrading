@@ -396,22 +396,22 @@ if __name__ == '__main__':
 
     # read csv
     read_pair_csvs(csv_path="ib_trading/shadow_trading_data/y_EIS_x_PLTM.csv",
-                   observation_date='2021-04-01',
+                   observation_date='2021-04-06',
                    y_ticker='EIS',
-                   observed_y_ticker_price=65.66,
+                   observed_y_ticker_price=66.88,
                    x_tickers_list=['PLTM'],
-                   observed_x_ticker_price=[11.70])
+                   observed_x_ticker_price=[12.22])
 
     # write csv
     # save_pair_csvs(csv_path="ib_trading/shadow_trading_data/y_EIS_x_PLTM.csv",
-    #                observation_date='2021-03-01',  # '2019-12-31'
+    #                observation_date='2021-04-06',  # '2019-12-31'
     #                y_ticker='EIS',
-    #                purchased_y_ticker_price=65.71,
-    #                purchased_y_ticker_units=0,
+    #                purchased_y_ticker_price=66.88,
+    #                purchased_y_ticker_units=74,
     #                x_tickers_list=['PLTM'],
-    #                purchased_x_ticker_price=[11.72],
-    #                purchased_x_ticker_units=[0],
-    #                cash=999695,
-    #                commission=-1.03,
-    #                comments="No EIS available to short - otherwise, advised to short EIS long PLTM!")
+    #                purchased_x_ticker_price=[12.22],
+    #                purchased_x_ticker_units=[-401.44],
+    #                cash=999472,
+    #                commission=0,
+    #                comments="")
 

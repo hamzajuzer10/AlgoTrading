@@ -14,10 +14,10 @@ import csv
 from datetime import datetime
 
 etf_ticker_path = '/backtest_pairs/data/etf_tickers_07_2020.csv'
-start_date = '2020-06-20'
-end_date = '2021-02-23'
+start_date = '2020-06-01'
+end_date = '2021-04-05'
 time_interval = 'weekly'
-time_zones = [-18000, 0]
+time_zones = [-14400, 0]
 num_tickers_in_basket = 2
 min_period_yrs = 1.5
 max_half_life = 12 # in time interval units, 30 if days, 12 if weeks
@@ -273,7 +273,7 @@ if __name__ == '__main__':
                                      time_interval='daily')
 
     # benchmark data
-    benchmark_ticker = 'PLTM' #SPY, ^VIX
+    benchmark_ticker = 'SPY' #SPY, ^VIX
     print('Importing benchmark data - {}'.format(benchmark_ticker))
     benchmark_data = import_ticker_data(tickers=[benchmark_ticker],
                                         start_date=start_date,
@@ -327,7 +327,7 @@ if __name__ == '__main__':
     valid_combinations['neg_std_returns'], \
     valid_combinations['Sharpe'], \
     valid_combinations['Sortino'] = zip(*valid_combinations.apply(runstrategy,
-                                                  args=(benchmark_data[benchmark_ticker]['price_df'], 10000, 'results_ind_12_2020_weekly', 1.4, 1.5, None, end_date, 0.05, time_interval, False), axis=1))
+                                                  args=(benchmark_data[benchmark_ticker]['price_df'], 10000, 'results_ind_12_2020_weekly', 0, 0, None, end_date, 0.05, time_interval, False), axis=1))
 
     # # save valid combinations
     # print('Saving results')
