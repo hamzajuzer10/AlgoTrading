@@ -10,20 +10,20 @@ tf.disable_v2_behavior()
 # GLOBAL
 coins = ["BTC", "ETH", "ADA", "BNB", "UNI", "LTC", "XLM", "XRP"]
 days_ago_to_fetch = 30  # see also filter_history_by_date()
-min_weight = 0.05 # min weight to invest in a crypto
-max_weight = 0.4 # max weight to invest in a crypto
+min_weight = 0.05  # min weight to invest in a crypto
+max_weight = 0.4  # max weight to invest in a crypto
 
 
-def fetch_all():
+def fetch_all(coins, days_ago_to_fetch):
 
     coin_history = {}
     for coin in coins:
-        coin_history[coin] = fetch_history(coin)
+        coin_history[coin] = fetch_history(coin, days_ago_to_fetch)
 
     return coin_history
 
 
-def fetch_history(coin):
+def fetch_history(coin, days_ago_to_fetch):
     endpoint_url = "https://min-api.cryptocompare.com/data/histoday?fsym={}&tsym=USD&limit={:d}".format(coin,
                                                                                                         days_ago_to_fetch)
     res = requests.get(endpoint_url)
@@ -47,7 +47,7 @@ def filter_history_by_date(hist):
 
 
 # Calculate returns and excess returns
-def add_all_returns():
+def add_all_returns(coins, coin_history):
 
     average_returns = {}
     cumulative_returns = {}
@@ -60,7 +60,7 @@ def add_all_returns():
         hist['excess_return'] = hist['return'] - average
         coin_history[coin] = hist
 
-    return average_returns, cumulative_returns
+    return average_returns, cumulative_returns, coin_history
 
 
 # Excess matrix
@@ -91,100 +91,60 @@ def create_correlation_matrix(coin_history, hist_length):
     return correlation_matrix, pretty_matrix, std_deviations
 
 
-# Optimize weights to minimize volatility
-
-def minimize_volatility(std_deviations, correlation_matrix):
-
-    # Define the model
-    # Portfolio Volatility = Sqrt (Transpose (Wt.SD) * Correlation Matrix * Wt. SD)
-
-    coin_weights = tf.Variable(np.full((len(coins), 1), 1.0 / len(coins)))  # our variables
+def get_portfolio_volatility(coin_weights, std_deviations, correlation_matrix):
     weighted_std_devs = tf.multiply(coin_weights, std_deviations)
 
     product_1 = tf.transpose(weighted_std_devs)
     product_2 = tf.matmul(product_1, correlation_matrix)
+    variance = tf.matmul(product_2, weighted_std_devs)
 
-    portfolio_variance = tf.matmul(product_2, weighted_std_devs)
-    portfolio_volatility = tf.sqrt(tf.reduce_sum(portfolio_variance))
-
-    # Constraints: sum([0..1, 0..1, ...]) = 1
-
-    lower_than_x = tf.greater(np.float64(min_weight), coin_weights)
-    zero_minimum_op = coin_weights.assign(tf.where(lower_than_x, tf.ones_like(coin_weights)*min_weight, coin_weights))
-
-    greater_than_x = tf.greater(coin_weights, np.float64(max_weight))
-    unity_max_op = coin_weights.assign(tf.where(greater_than_x, tf.ones_like(coin_weights)*max_weight, coin_weights))
-
-    result_sum = tf.reduce_sum(coin_weights)
-    unity_sum_op = coin_weights.assign(tf.divide(coin_weights, result_sum))
-
-    constraints_op = tf.group(zero_minimum_op, unity_max_op, unity_sum_op)
-
-    # Run
-    learning_rate = 0.01
-    steps = 5000
-
-    init = tf.global_variables_initializer()
-
-    # Training using Gradient Descent to minimize variance
-    optimize_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(portfolio_volatility)
-
-    with tf.Session() as sess:
-        sess.run(init)
-        for i in range(steps):
-            sess.run(optimize_op)
-            sess.run(constraints_op)
-            if i % 2500 == 0:
-                print("[round {:d}]".format(i))
-                print("Weights", coin_weights.eval())
-                print("Volatility: {:.2f}%".format(portfolio_volatility.eval() * 100))
-                print("")
-
-        sess.run(constraints_op)
-        return coin_weights.eval()
+    volatility = tf.sqrt(variance)
+    return tf.reduce_sum(volatility)
 
 
-# Optimize weights to maximize return/risk (Sharpe ratio)
-def maximize_sharpe_ratio(std_deviations, correlation_matrix, cumulative_returns):
-    # Define the model
-
-    # 1) Variance
-
-    coin_weights = tf.Variable(tf.random_uniform((len(coins), 1), dtype=tf.float64))  # our variables
-    weighted_std_devs = tf.multiply(coin_weights, std_deviations)
-
-    product_1 = tf.transpose(weighted_std_devs)
-    product_2 = tf.matmul(product_1, correlation_matrix)
-
-    portfolio_variance = tf.matmul(product_2, weighted_std_devs)
-    portfolio_volatility = tf.sqrt(tf.reduce_sum(portfolio_variance))
-
-    # 2) Return
-
+def get_portfolio_return(coins, coin_weights, cumulative_returns):
     returns = np.full((len(coins), 1), 0.0)  # same as coin_weights
     for coin_idx in range(0, len(coins)):
         returns[coin_idx] = cumulative_returns[coins[coin_idx]]
 
-    portfolio_return = tf.reduce_sum(tf.multiply(coin_weights, returns))
+    p_return = tf.multiply(coin_weights, returns)
+    return tf.reduce_sum(p_return)
 
-    # 3) Return / Risk
-    sharpe_ratio = tf.divide(portfolio_return, portfolio_volatility)
 
+def ensure_constraints_op(coin_weights, min_weight, max_weight):
     # Constraints
     # all values positive, with unity sum
     # weights_sum = tf.reduce_sum(coin_weights)
     # constraints_op = coin_weights.assign(tf.divide(tf.abs(coin_weights), tf.abs(weights_sum)))
 
     lower_than_x = tf.greater(np.float64(min_weight), coin_weights)
-    zero_minimum_op = coin_weights.assign(tf.where(lower_than_x, tf.ones_like(coin_weights)*min_weight, coin_weights))
+    zero_minimum_op = coin_weights.assign(tf.where(lower_than_x, tf.ones_like(coin_weights) * min_weight, coin_weights))
 
     greater_than_x = tf.greater(coin_weights, np.float64(max_weight))
-    unity_max_op = coin_weights.assign(tf.where(greater_than_x, tf.ones_like(coin_weights)*max_weight, coin_weights))
+    unity_max_op = coin_weights.assign(tf.where(greater_than_x, tf.ones_like(coin_weights) * max_weight, coin_weights))
 
     result_sum = tf.reduce_sum(coin_weights)
     unity_sum_op = coin_weights.assign(tf.divide(coin_weights, result_sum))
 
     constraints_op = tf.group(zero_minimum_op, unity_max_op, unity_sum_op)
+
+    return constraints_op
+
+
+# Optimize weights to maximize return/risk (Sharpe ratio)
+def maximize_sharpe_ratio(coins, std_deviations, cumulative_returns, min_weight, max_weight):
+    # Define the model
+
+    coin_weights = tf.Variable(tf.random_uniform((len(coins), 1), dtype=tf.float64))  # our variables
+
+    portfolio_volatility = get_portfolio_volatility(coin_weights, std_deviations, correlation_matrix)
+
+    portfolio_return = get_portfolio_return(coins, coin_weights, cumulative_returns)
+
+    # 3) Return / Risk
+    sharpe_ratio = tf.divide(portfolio_return, portfolio_volatility)
+
+    constraints_op = ensure_constraints_op(coin_weights, min_weight, max_weight)
 
     # Run
     #learning_rate = 0.0001
@@ -194,11 +154,11 @@ def maximize_sharpe_ratio(std_deviations, correlation_matrix, cumulative_returns
     # Training using Gradient Descent to minimize cost
 
 #    optimize_op = tf.train.GradientDescentOptimizer(learning_rate, use_locking=True).minimize(tf.negative(sharpe_ratio))
-    optimize_op = tf.train.AdamOptimizer(learning_rate, use_locking=True).minimize(tf.divide(1, sharpe_ratio))
+    # optimize_op = tf.train.AdamOptimizer(learning_rate, use_locking=True).minimize(tf.divide(1, sharpe_ratio))
 
     # 2# optimize_op = tf.train.AdamOptimizer(learning_rate, use_locking=True).minimize(tf.negative(sharpe_ratio))
-    # 3# optimize_op = tf.train.AdamOptimizer(learning_rate=0.00005, beta1=0.9, beta2=0.999, epsilon=1e-08, use_locking=False).minimize(tf.negative(sharpe_ratio))
-    # 4# optimize_op = tf.train.AdagradOptimizer(learning_rate=0.01, initial_accumulator_value=0.1, use_locking=False).minimize(tf.negative(sharpe_ratio))
+    optimize_op = tf.train.AdamOptimizer(learning_rate=0.00005, beta1=0.9, beta2=0.999, epsilon=1e-08, use_locking=False).minimize(tf.divide(1, sharpe_ratio))
+    #optimize_op = tf.train.AdagradOptimizer(learning_rate=0.01, initial_accumulator_value=0.1, use_locking=False).minimize(tf.divide(1, sharpe_ratio))
 
     init = tf.global_variables_initializer()
 
@@ -215,28 +175,27 @@ def maximize_sharpe_ratio(std_deviations, correlation_matrix, cumulative_returns
                 sess.run(constraints_op)
                 print("[round {:d}]".format(i))
                 # print("Coin weights", sess.run(coin_weights))
-                print("Volatility {:.2f} %".format(sess.run(portfolio_volatility)))
-                print("Return {:.2f} %".format(sess.run(portfolio_return) * 100))
+                print("Daily returns volatility {:.2f} %".format(sess.run(portfolio_volatility)))
+                print("Total portfolio return {:.2f} %".format(sess.run(portfolio_return) * 100))
                 print("Sharpe ratio", sess.run(sharpe_ratio))
                 print("")
 
         sess.run(constraints_op)
         # print("Coin weights", sess.run(coin_weights))
-        print("Volatility {:.2f} %".format(sess.run(portfolio_volatility)))
-        print("Return {:.2f} %".format(sess.run(portfolio_return) * 100))
+        print("Daily returns volatility {:.2f} %".format(sess.run(portfolio_volatility)))
+        print("Total portfolio return {:.2f} %".format(sess.run(portfolio_return) * 100))
         print("Sharpe ratio", sess.run(sharpe_ratio))
         return sess.run(coin_weights)
 
 
 if __name__ == '__main__':
 
-    coin_history = fetch_all()
+    coin_history = fetch_all(coins, days_ago_to_fetch)
     hist_length = len(coin_history[coins[0]])
-    average_returns, cumulative_returns = add_all_returns()
+    average_returns, cumulative_returns, coin_history = add_all_returns(coins, coin_history)
     correlation_matrix, pretty_matrix, std_deviations = create_correlation_matrix(coin_history, hist_length)
 
-#    weights = minimize_volatility(std_deviations, correlation_matrix)
-    weights = maximize_sharpe_ratio(std_deviations, correlation_matrix, cumulative_returns)
+    weights = maximize_sharpe_ratio(coins, std_deviations, cumulative_returns, min_weight, max_weight)
 
     pretty_weights = pd.DataFrame(weights * 100, index=coins, columns=["Weight %"])
     print(pretty_weights)
