@@ -1,36 +1,50 @@
-from backtest_portfolio_optimisation.optimise_portfolio import fetch_all, add_all_returns, create_correlation_matrix, \
+from backtest_portfolio_optimisation.cryptocompare_connector import fetch_all
+from backtest_portfolio_optimisation.optimise_portfolio import add_all_returns, create_correlation_matrix, \
     get_portfolio_volatility, get_portfolio_return
 import pandas as pd
 import numpy as np
-import tensorflow.compat.v1 as tf
-tf.disable_v2_behavior()
-import matplotlib.pyplot as plt
-
+from backtest_portfolio_optimisation.utils import save_file_path
 
 # GLOBAL
-coins = ["BTC", "ETH", "ADA", "BNB", "UNI", "LTC", "XLM", "XRP"] # coins
-coins_weights = [.04948837, .27709115, .04949638, .26242672, .04952015, .21300072, .04948826, .04948826] # weights
-periods_ago_to_fetch = [30, 45, 60, 75, 90]  # see also filter_history_by_date()
-initial_capital = 6200
+coins = ["BTC", "ETH", "ADA", "BNB", "UNI", "LTC", "XLM", "XRP", "DOT", "MATIC", "ATOM"]
+coins_weights = [.0, .0, .5, .0, .0, .0, .0, .0, .0, .5, .0] # weights
+periods_ago_to_fetch = [7, 14, 30, 45, 60, 75, 90]  # see also filter_history_by_date()
+timescale = 'daily' # 'hourly' or 'daily'
+initial_capital = 6920
 
 
-def get_metrics(coins, coins_weights_list, std_deviations, correlation_matrix, cumulative_returns):
+def get_metrics(coins, coins_weights_list, std_deviations, correlation_matrix, cumulative_returns, timescale):
 
-    coin_weights = tf.constant(coins_weights_list, shape=(8,1), dtype=tf.float64)  # our variables
+    # Define parameters
+    results_array = np.zeros((3 + len(coins), 1))
 
-    portfolio_volatility = get_portfolio_volatility(coin_weights, std_deviations, correlation_matrix)
+    w = np.asmatrix(coins_weights_list)
 
-    portfolio_return = get_portfolio_return(coins, coin_weights, cumulative_returns)
+    p_r = get_portfolio_return(coins, w, cumulative_returns)
+    p_std = get_portfolio_volatility(w, std_deviations, correlation_matrix, timescale)
 
-    # 3) Return / Risk
-    sharpe_ratio = tf.divide(portfolio_return, portfolio_volatility)
+    # store results in results array
+    results_array[0, 0] = p_r
+    results_array[1, 0] = p_std
+    # store Sharpe Ratio (return / volatility) - risk free rate element
+    # excluded for simplicity
+    results_array[2, 0] = results_array[0, 0] / results_array[1, 0]
 
-    with tf.Session() as sess:
+    for i, w in enumerate(coins_weights_list):
+        results_array[3 + i, 0] = w
 
-        # print("Coin weights", sess.run(coin_weights))
-        print("Daily returns volatility {:.2f} %".format(sess.run(tf.reduce_sum(portfolio_volatility))))
-        print("Total portfolio return {:.2f} %".format(sess.run(portfolio_return) * 100))
-        print("Sharpe ratio", sess.run(tf.reduce_sum(sharpe_ratio)))
+    columns = ['r', 'stdev', 'sharpe'] + coins
+
+    # convert results array to Pandas DataFrame
+    results_frame = pd.DataFrame(np.transpose(results_array),
+                                 columns=columns)
+    # locate position of portfolio with highest Sharpe Ratio
+    max_sharpe_port = results_frame.iloc[results_frame['sharpe'].idxmax()]
+
+    # print("Coin weights", sess.run(coin_weights))
+    print("Cumulative returns {:.2f} %".format(max_sharpe_port['r'] * 100))
+    print("Annualised returns volatility {:.2f} %".format(max_sharpe_port['stdev'] * 100))
+    print("Sharpe ratio {:.2f}".format(max_sharpe_port['sharpe']))
 
 
 def get_cumulative_ratios_by_coin(coins, hist_length, coin_history):
@@ -56,21 +70,23 @@ if __name__ == '__main__':
 
     for days_ago_to_fetch in periods_ago_to_fetch:
         print('Time period: {} days'.format(days_ago_to_fetch))
-        coin_history = fetch_all(coins, days_ago_to_fetch)
+        coin_history = fetch_all(coins=coins, days_ago_to_fetch=days_ago_to_fetch, timescale=timescale)
         hist_length = len(coin_history[coins[0]])
         average_returns, cumulative_returns, coin_history = add_all_returns(coins, coin_history)
-        correlation_matrix, pretty_matrix, std_deviations = create_correlation_matrix(coin_history, hist_length)
+        correlation_matrix, pretty_matrix, std_deviations = create_correlation_matrix(coins, coin_history, hist_length)
 
-        get_metrics(coins, coins_weights, std_deviations, correlation_matrix, cumulative_returns)
+        get_metrics(coins, coins_weights, std_deviations, correlation_matrix, cumulative_returns, timescale)
 
-    # Generate and plot portfolio valuation by time (ignores the returns on the first day so may not be
-    # the same as returns specified above
-    returns = get_global_daily_valuation(coins, hist_length, coin_history, coins_weights) * initial_capital
-    returns.index = pd.to_datetime(returns.index)
-    returns['days'] = np.arange(len(returns))
-    returns.plot(x='days', y=['Cumulative return'], figsize=(15, 4))
+        # Generate and plot portfolio valuation by time (ignores the returns on the first day so may not be
+        # the same as returns specified above
+        returns = get_global_daily_valuation(coins, hist_length, coin_history, coins_weights) * initial_capital
+        returns.index = pd.to_datetime(returns.index)
+        returns['days'] = np.arange(len(returns))
 
-    plt.xticks(rotation=15)
-    plt.title('Cumulative returns')
-    plt.show()
+        fig = returns.plot(x='days', y=['Cumulative return'], figsize=(15, 4)).get_figure()
+        fig.savefig(
+            save_file_path('plots',
+                           'cumulative_returns_' + str(days_ago_to_fetch) + '_days' + '.png'),
+            format='png', dpi=1000)
+        fig.clf()
 

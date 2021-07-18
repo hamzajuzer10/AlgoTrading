@@ -1,49 +1,17 @@
-import json
-import requests
 import pandas as pd
 import numpy as np
-import time
-import tensorflow.compat.v1 as tf
-tf.disable_v2_behavior()
-# import matplotlib.pyplot as plt
+from backtest_portfolio_optimisation.cryptocompare_connector import fetch_all
+import matplotlib.pyplot as plt
 
+
+# use the following as reference: https://github.com/enigmampc/catalyst/blob/master/catalyst/examples/portfolio_optimization.py
 # GLOBAL
-coins = ["BTC", "ETH", "ADA", "BNB", "UNI", "LTC", "XLM", "XRP"]
-days_ago_to_fetch = 30  # see also filter_history_by_date()
-min_weight = 0.05  # min weight to invest in a crypto
+coins = ["BTC", "ETH", "ADA", "BNB", "UNI", "LTC", "XLM", "XRP", "DOT", "ATOM"]
+from_date = '2021-04-30'
+to_date = '2021-05-30'
+min_weight = 0.03  # min weight to invest in a crypto
 max_weight = 0.4  # max weight to invest in a crypto
-
-
-def fetch_all(coins, days_ago_to_fetch):
-
-    coin_history = {}
-    for coin in coins:
-        coin_history[coin] = fetch_history(coin, days_ago_to_fetch)
-
-    return coin_history
-
-
-def fetch_history(coin, days_ago_to_fetch):
-    endpoint_url = "https://min-api.cryptocompare.com/data/histoday?fsym={}&tsym=USD&limit={:d}".format(coin,
-                                                                                                        days_ago_to_fetch)
-    res = requests.get(endpoint_url)
-    hist = pd.DataFrame(json.loads(res.content)['Data'])
-    hist = index_history(hist)
-    hist = filter_history_by_date(hist)
-    return hist
-
-
-def index_history(hist):
-    # index by date so we can easily filter by a given timeframe
-    hist = hist.set_index('time')
-    hist.index = pd.to_datetime(hist.index, unit='s')
-    return hist
-
-
-def filter_history_by_date(hist):
-    result = hist[hist.index.year >= 2017]
-    # result = result[result.index.day == 1] # every first of month, etc.
-    return result
+timescale = 'daily' # 'hourly' or 'daily'
 
 
 # Calculate returns and excess returns
@@ -64,7 +32,7 @@ def add_all_returns(coins, coin_history):
 
 
 # Excess matrix
-def create_correlation_matrix(coin_history, hist_length):
+def create_correlation_matrix(coins, coin_history, hist_length):
 
     excess_matrix = np.zeros((hist_length, len(coins)))
     for i in range(0, hist_length):
@@ -91,111 +59,100 @@ def create_correlation_matrix(coin_history, hist_length):
     return correlation_matrix, pretty_matrix, std_deviations
 
 
-def get_portfolio_volatility(coin_weights, std_deviations, correlation_matrix):
-    weighted_std_devs = tf.multiply(coin_weights, std_deviations)
+def get_portfolio_volatility(w, std_deviations, correlation_matrix, timescale):
 
-    product_1 = tf.transpose(weighted_std_devs)
-    product_2 = tf.matmul(product_1, correlation_matrix)
-    variance = tf.matmul(product_2, weighted_std_devs)
+    weighted_std_devs = np.multiply(np.transpose(w), std_deviations)
 
-    volatility = tf.sqrt(variance)
-    return tf.reduce_sum(volatility)
+    product_1 = np.transpose(weighted_std_devs)
+    product_2 = np.matmul(product_1, correlation_matrix)
+    variance = np.matmul(product_2, weighted_std_devs)
+
+    # Annualize volatility
+    if timescale == 'daily':
+        vol_mult = np.sqrt(365)
+    elif timescale == 'hourly':
+        vol_mult = np.sqrt(365 * 24)
+
+    return np.sum(np.sqrt(variance)) * vol_mult
 
 
-def get_portfolio_return(coins, coin_weights, cumulative_returns):
-    returns = np.full((len(coins), 1), 0.0)  # same as coin_weights
+def get_portfolio_return(coins, w, cumulative_returns):
+
+    # Compute cumulative returns
+    m = np.full((len(coins), 1), 0.0)  # same as coin_weights
     for coin_idx in range(0, len(coins)):
-        returns[coin_idx] = cumulative_returns[coins[coin_idx]]
+        m[coin_idx] = cumulative_returns[coins[coin_idx]]
 
-    p_return = tf.multiply(coin_weights, returns)
-    return tf.reduce_sum(p_return)
-
-
-def ensure_constraints_op(coin_weights, min_weight, max_weight):
-    # Constraints
-    # all values positive, with unity sum
-    # weights_sum = tf.reduce_sum(coin_weights)
-    # constraints_op = coin_weights.assign(tf.divide(tf.abs(coin_weights), tf.abs(weights_sum)))
-
-    lower_than_x = tf.greater(np.float64(min_weight), coin_weights)
-    zero_minimum_op = coin_weights.assign(tf.where(lower_than_x, tf.ones_like(coin_weights) * min_weight, coin_weights))
-
-    greater_than_x = tf.greater(coin_weights, np.float64(max_weight))
-    unity_max_op = coin_weights.assign(tf.where(greater_than_x, tf.ones_like(coin_weights) * max_weight, coin_weights))
-
-    result_sum = tf.reduce_sum(coin_weights)
-    unity_sum_op = coin_weights.assign(tf.divide(coin_weights, result_sum))
-
-    constraints_op = tf.group(zero_minimum_op, unity_max_op, unity_sum_op)
-
-    return constraints_op
+    # return weighted return
+    return sum(np.dot(w, m))
 
 
 # Optimize weights to maximize return/risk (Sharpe ratio)
-def maximize_sharpe_ratio(coins, std_deviations, cumulative_returns, min_weight, max_weight):
-    # Define the model
+def maximize_sharpe_ratio(coins, std_deviations, cumulative_returns, correlation_matrix, min_weight, max_weight, timescale):
 
-    coin_weights = tf.Variable(tf.random_uniform((len(coins), 1), dtype=tf.float64))  # our variables
+    # Define portfolio optimization parameters
+    n_portfolios = 100000
+    results_array = np.zeros((3 + len(coins), n_portfolios))
+    for p in range(n_portfolios):
+        weights = np.random.random(len(coins))
+        weights /= np.sum(weights)
+        w = np.asmatrix(weights)
 
-    portfolio_volatility = get_portfolio_volatility(coin_weights, std_deviations, correlation_matrix)
+        p_r = get_portfolio_return(coins, w, cumulative_returns)
+        p_std = get_portfolio_volatility(w, std_deviations, correlation_matrix, timescale)
 
-    portfolio_return = get_portfolio_return(coins, coin_weights, cumulative_returns)
+        # store results in results array
+        results_array[0, p] = p_r
+        results_array[1, p] = p_std
+        # store Sharpe Ratio (return / volatility) - risk free rate element
+        # excluded for simplicity
+        results_array[2, p] = results_array[0, p] / results_array[1, p]
 
-    # 3) Return / Risk
-    sharpe_ratio = tf.divide(portfolio_return, portfolio_volatility)
+        for i, w in enumerate(weights):
+            results_array[3 + i, p] = w
 
-    constraints_op = ensure_constraints_op(coin_weights, min_weight, max_weight)
+    columns = ['r', 'stdev', 'sharpe'] + coins
 
-    # Run
-    #learning_rate = 0.0001
-    learning_rate = 0.000005
-    steps = 50000
+    # convert results array to Pandas DataFrame
+    results_frame = pd.DataFrame(np.transpose(results_array),
+                                 columns=columns)
+    # locate position of portfolio with highest Sharpe Ratio
+    max_sharpe_port = results_frame.iloc[results_frame['sharpe'].idxmax()]
+    # locate positon of portfolio with minimum standard deviation
+    # min_vol_port = results_frame.iloc[results_frame['stdev'].idxmin()]
 
-    # Training using Gradient Descent to minimize cost
+    # create scatter plot coloured by Sharpe Ratio
+    plt.scatter(results_frame.stdev,
+                results_frame.r,
+                c=results_frame.sharpe,
+                cmap='RdYlGn')
+    plt.xlabel('Volatility')
+    plt.ylabel('Returns')
+    plt.colorbar()
 
-#    optimize_op = tf.train.GradientDescentOptimizer(learning_rate, use_locking=True).minimize(tf.negative(sharpe_ratio))
-    # optimize_op = tf.train.AdamOptimizer(learning_rate, use_locking=True).minimize(tf.divide(1, sharpe_ratio))
+    # plot blue circle to highlight position of portfolio
+    # with highest Sharpe Ratio
+    plt.scatter(max_sharpe_port[1],
+                max_sharpe_port[0],
+                marker='o',
+                color='b',
+                s=200)
 
-    # 2# optimize_op = tf.train.AdamOptimizer(learning_rate, use_locking=True).minimize(tf.negative(sharpe_ratio))
-    optimize_op = tf.train.AdamOptimizer(learning_rate=0.00005, beta1=0.9, beta2=0.999, epsilon=1e-08, use_locking=False).minimize(tf.divide(1, sharpe_ratio))
-    #optimize_op = tf.train.AdagradOptimizer(learning_rate=0.01, initial_accumulator_value=0.1, use_locking=False).minimize(tf.divide(1, sharpe_ratio))
-
-    init = tf.global_variables_initializer()
-
-    with tf.Session() as sess:
-        ratios = np.zeros(steps)
-        returns = np.zeros(steps)
-        sess.run(init)
-        for i in range(steps):
-            sess.run(optimize_op)
-            sess.run(constraints_op)
-            ratios[i] = sess.run(sharpe_ratio)
-            returns[i] = sess.run(portfolio_return) * 100
-            if i % 2000 == 0:
-                sess.run(constraints_op)
-                print("[round {:d}]".format(i))
-                # print("Coin weights", sess.run(coin_weights))
-                print("Daily returns volatility {:.2f} %".format(sess.run(portfolio_volatility)))
-                print("Total portfolio return {:.2f} %".format(sess.run(portfolio_return) * 100))
-                print("Sharpe ratio", sess.run(sharpe_ratio))
-                print("")
-
-        sess.run(constraints_op)
-        # print("Coin weights", sess.run(coin_weights))
-        print("Daily returns volatility {:.2f} %".format(sess.run(portfolio_volatility)))
-        print("Total portfolio return {:.2f} %".format(sess.run(portfolio_return) * 100))
-        print("Sharpe ratio", sess.run(sharpe_ratio))
-        return sess.run(coin_weights)
-
+    plt.show()
+    print("Cumulative returns {:.2f} %".format(max_sharpe_port['r']*100))
+    print("Annualised returns volatility {:.2f} %".format(max_sharpe_port['stdev']*100))
+    print("Sharpe ratio {:.2f}".format(max_sharpe_port['sharpe']))
+    return max_sharpe_port
 
 if __name__ == '__main__':
 
-    coin_history = fetch_all(coins, days_ago_to_fetch)
+    coin_history = fetch_all(coins=coins, start_date=from_date, end_date=to_date, timescale=timescale)
+
     hist_length = len(coin_history[coins[0]])
     average_returns, cumulative_returns, coin_history = add_all_returns(coins, coin_history)
-    correlation_matrix, pretty_matrix, std_deviations = create_correlation_matrix(coin_history, hist_length)
+    correlation_matrix, pretty_matrix, std_deviations = create_correlation_matrix(coins, coin_history, hist_length)
 
-    weights = maximize_sharpe_ratio(coins, std_deviations, cumulative_returns, min_weight, max_weight)
+    weights = maximize_sharpe_ratio(coins, std_deviations, cumulative_returns, correlation_matrix, min_weight, max_weight, timescale)
 
-    pretty_weights = pd.DataFrame(weights * 100, index=coins, columns=["Weight %"])
+    pretty_weights = weights[coins]
     print(pretty_weights)
